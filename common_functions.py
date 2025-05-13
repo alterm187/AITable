@@ -26,8 +26,7 @@ def read_system_message(filename: str) -> Tuple[Optional[str], str]:
                 match = re.match(r"^DisplayName:\s*(.+)$", lines[0].strip(), re.IGNORECASE)
                 if match:
                     display_name = match.group(1).strip()
-                    system_message_content = "
-".join(lines[1:]).strip()
+                    system_message_content = "\n".join(lines[1:]).strip()
                     module_logger.info(f"Parsed DisplayName '{display_name}' from {filename}")
                 else:
                     module_logger.info(f"No DisplayName found in first line of {filename}.")
@@ -168,17 +167,11 @@ def initiate_chat_task(
     final_prompt = initial_prompt.strip()
     if system_content_for_group and system_content_for_group.strip():
         formatted_content = (
-            f"Contextual Content provided by the User (this is not part of the direct task, but general context for all assistants):
-"
-            f"---
-"
-            f"{system_content_for_group.strip()}
-"
-            f"---
-
-"
-            f"Original Task from User:
-"
+            f"Contextual Content provided by the User (this is not part of the direct task, but general context for all assistants):\n"
+            f"---\n"
+            f"{system_content_for_group.strip()}\n"
+            f"---\n"
+            f"Original Task from User:\n"
             f"{final_prompt}"
         )
         final_prompt = formatted_content
