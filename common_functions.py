@@ -4,6 +4,7 @@ import autogen
 from autogen import AssistantAgent, UserProxyAgent, GroupChatManager, Agent, GroupChat
 from typing import List, Optional, Sequence, Tuple, Dict, Union
 import json # Import json for pretty printing dicts
+import re # Import re for regular expressions
 
 from LLMConfiguration import LLMConfiguration, logger # Assuming logger is correctly configured here
 
@@ -11,43 +12,83 @@ from LLMConfiguration import LLMConfiguration, logger # Assuming logger is corre
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s') # User should ensure DEBUG level is set in active config
 
 
-def read_system_message(filename):
-    """Reads system message from a file."""
+def read_system_message(filename: str) -> Tuple[Optional[str], str]:
+    """
+    Reads system message from a file.
+    Parses a DisplayName from the first line if present.
+    Returns a tuple: (display_name, system_message_content).
+    display_name will be None if not found.
+    system_message_content will be the original content if display_name is not found,
+    or the content without the DisplayName line.
+    Returns (None, "You are a helpful assistant.") on error or if file not found.
+    """
+    default_system_message = "You are a helpful assistant."
     try:
         with open(filename, 'r', encoding='utf-8') as file:
-            return file.read().strip()
+            full_content = file.read()
+            lines = full_content.splitlines()
+            display_name = None
+            system_message_content = full_content.strip()
+
+            if lines:
+                # Check for DisplayName: Your Name format
+                match = re.match(r"^DisplayName:\s*(.+)$", lines[0].strip(), re.IGNORECASE)
+                if match:
+                    display_name = match.group(1).strip()
+                    # Join the rest of the lines for the system message
+                    system_message_content = "
+".join(lines[1:]).strip()
+                    logger.info(f"Parsed DisplayName '{display_name}' from {filename}")
+                else:
+                    logger.info(f"No DisplayName found in first line of {filename}. Using full content for system message.")
+            else: # Empty file
+                 logger.warning(f"System message file {filename} is empty. Using default system message.")
+                 return None, default_system_message
+
+
+            return display_name, system_message_content
+
     except FileNotFoundError:
         logger.error(f"System message file not found: {filename}")
-        return "You are a helpful assistant." # Default fallback
+        return None, default_system_message
     except Exception as e:
         logger.error(f"Error reading system message file {filename}: {e}")
-        return "You are a helpful assistant."
+        return None, default_system_message
 
 
 def create_agent(
     name: str,
     llm_config: LLMConfiguration,
     system_message_file: Optional[str] = None,
-    system_message_content: Optional[str] = None,
+    system_message_content: Optional[str] = None, # This will be the content *without* DisplayName
     agent_type="assistant"
     ) -> autogen.Agent:
     """
     Creates an agent with the specified configuration.
-    Prioritizes system_message_content if provided, otherwise reads from system_message_file.
+    Prioritizes system_message_content if provided.
+    If system_message_file is used, it implies DisplayName has already been handled.
     """
-    system_message = None
+    system_message_for_agent = None # This is what the agent actually uses
+    # display_name_for_agent = name # Default display name is the agent's internal name
+
     if system_message_content:
-        system_message = system_message_content.strip()
+        system_message_for_agent = system_message_content.strip()
         logger.debug(f"Using provided system message content for agent {name}.")
     elif system_message_file:
-        system_message = read_system_message(system_message_file)
-        logger.debug(f"Read system message from file {system_message_file} for agent {name}.")
+        # If only file is given, read_system_message (which parses DisplayName)
+        # should ideally be called *before* this function.
+        # For now, assume if file is passed here, it's pre-processed or doesn't have DisplayName.
+        # This part of the logic might need refinement depending on call patterns in app.py.
+        # For safety, we call our modified read_system_message here if content isn't directly provided.
+        # However, app.py will be modified to call read_system_message first.
+        _ , system_msg_from_file = read_system_message(system_message_file)
+        system_message_for_agent = _system_msg_from_file
+        logger.debug(f"Read system message from file {system_message_file} for agent {name}. DisplayName parsing handled separately.")
     else:
         logger.error(f"Neither system_message_file nor system_message_content provided for agent {name}. Using default.")
-        # raise ValueError(f"Must provide either system_message_file or system_message_content for agent {name}")
-        system_message = "You are a helpful assistant." # Fallback if neither is provided, although the check below is better
+        system_message_for_agent = "You are a helpful assistant."
 
-    if not system_message: # Double-check in case read_system_message failed silently or content was empty
+    if not system_message_for_agent:
          logger.error(f"Failed to obtain a system message for agent {name}. Cannot create agent.")
          raise ValueError(f"System message is empty or could not be loaded for agent {name}")
 
@@ -57,21 +98,20 @@ def create_agent(
          raise ValueError(f"Invalid LLM configuration for agent {name}")
 
     if agent_type == "user_proxy":
-        # UI will handle input, so set human_input_mode to NEVER
         agent = UserProxyAgent(
             name=name,
-            system_message=system_message,
-            human_input_mode="NEVER", # Correct for UI-driven input
+            system_message=system_message_for_agent,
+            human_input_mode="NEVER",
             code_execution_config=False,
             llm_config=config,
-            default_auto_reply="", # UI handles replies
+            default_auto_reply="",
             is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"),
         )
     else:  # AssistantAgent
         agent = AssistantAgent(
             name=name,
-            system_message=system_message,
-            human_input_mode="NEVER", # Ensure assistant agents don't ask for input
+            system_message=system_message_for_agent,
+            human_input_mode="NEVER",
             llm_config=config,
             is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"),
             )
