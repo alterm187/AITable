@@ -12,13 +12,13 @@ from autogen import UserProxyAgent, GroupChatManager, GroupChat, Agent
 # Import necessary components from local modules
 from LLMConfiguration import LLMConfiguration, VERTEX_AI, AZURE, ANTHROPIC
 from common_functions import (
-    create_agent,         # Still needed
-    create_groupchat,     # Still needed
-    create_groupchat_manager, # Still needed
-    initiate_chat_task, # Import from common_functions
-    run_agent_step,     # Import from common_functions
-    send_user_message,   # Import from common_functions
-    read_system_message # Import the function from common_functions
+    create_agent,
+    create_groupchat,
+    create_groupchat_manager,
+    initiate_chat_task,
+    run_agent_step,
+    send_user_message,
+    read_system_message # Updated signature: returns (display_name, content)
 )
 
 # Configure logging
@@ -27,26 +27,25 @@ logger = logging.getLogger(__name__)
 
 # --- Constants ---
 
-PRODUCT_LEAD_NAME = "User"  # Updated name
+PRODUCT_LEAD_NAME = "User"
 PERSONA1_NAME = "Persona1"
 PERSONA2_NAME = "Persona2"
 
-PRODUCT_LEAD_SYS_MSG_FILE = "User.md"  # Updated file name
-# These files provide the *default* system messages for the personas
-PERSONA1_DEFAULT_SYS_MSG_FILE = "Persona1.md"  # Updated file name
-PERSONA2_DEFAULT_SYS_MSG_FILE = "Persona2.md"  # Updated file name
+PRODUCT_LEAD_SYS_MSG_FILE = "User.md"
+PERSONA1_DEFAULT_SYS_MSG_FILE = "Persona1.md"
+PERSONA2_DEFAULT_SYS_MSG_FILE = "Persona2.md"
 
-# Marker for policy injection (if Persona1 takes on this role)
 POLICY_INJECTION_MARKER = "## Policies"
+MAX_MESSAGES_DISPLAY = 50
+POLICY_TEXT_KEY = "policy_text_input"
+TASK_PROMPT_KEY = "initial_prompt_input"
 
-MAX_MESSAGES_DISPLAY = 50 # Limit messages displayed to prevent clutter
-POLICY_TEXT_KEY = "policy_text_input" # Key for the policy text area
-TASK_PROMPT_KEY = "initial_prompt_input" # Key for the task description area
-
-# Keys for editable system messages in session_state
 PERSONA1_EDIT_KEY = "persona1_editable_prompt"
 PERSONA2_EDIT_KEY = "persona2_editable_prompt"
-PRODUCT_LEAD_EDIT_KEY = "product_lead_editable_prompt" # Should be user_editable_prompt now but key can remain for simplicity or be changed too
+PRODUCT_LEAD_EDIT_KEY = "product_lead_editable_prompt"
+
+# New key for storing display names
+AGENT_DISPLAY_NAMES_KEY = "agent_display_names"
 
 AGENT_CONFIG = {
     PERSONA1_NAME: {"file": PERSONA1_DEFAULT_SYS_MSG_FILE, "key": PERSONA1_EDIT_KEY},
@@ -54,29 +53,34 @@ AGENT_CONFIG = {
     PRODUCT_LEAD_NAME: {"file": PRODUCT_LEAD_SYS_MSG_FILE, "key": PRODUCT_LEAD_EDIT_KEY},
 }
 
-# Feature 4: Context Limit for Gemini Pro 1.5 (approximate)
 CONTEXT_LIMIT = 1_000_000
-WARNING_THRESHOLD = 0.85 # Warn at 85% of context limit
+WARNING_THRESHOLD = 0.85
 
 # --- Helper Functions ---
 
 def estimate_tokens(text: str) -> int:
-    """Approximates token count using character count / 4."""
     return len(text or "") // 4
 
 def initialize_editable_prompts():
-    """Loads default agent prompts into session state if they don't exist."""
+    """Loads default agent prompts and display names into session state."""
+    if AGENT_DISPLAY_NAMES_KEY not in st.session_state:
+        st.session_state[AGENT_DISPLAY_NAMES_KEY] = {}
+
     for agent_name, config in AGENT_CONFIG.items():
         if config["key"] not in st.session_state:
             try:
-                st.session_state[config["key"]] = read_system_message(config["file"])
-                logger.info(f"Loaded default system message for {agent_name} into session state ({config['key']}).")
+                # read_system_message now returns (display_name, content)
+                display_name, system_content = read_system_message(config["file"])
+                st.session_state[config["key"]] = system_content
+                # Store display name, defaulting to agent_name if not parsed
+                st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_name] = display_name or agent_name
+                logger.info(f"Loaded default system message for {agent_name} (Display: {st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_name]}) into session state ({config['key']}).")
             except Exception as e:
                 st.session_state[config["key"]] = f"Error loading default from {config['file']}: {e}"
+                st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_name] = agent_name # Fallback display name
                 logger.error(f"Failed to load initial prompt for {agent_name} from {config['file']}: {e}")
 
 def update_token_warning():
-    """Calculates estimated total tokens and displays warning if near limit."""
     policy_text = st.session_state.get(POLICY_TEXT_KEY, "")
     task_text = st.session_state.get(TASK_PROMPT_KEY, "")
     persona1_prompt = st.session_state.get(PERSONA1_EDIT_KEY, "")
@@ -90,376 +94,226 @@ def update_token_warning():
     product_lead_tokens = estimate_tokens(product_lead_prompt)
 
     total_system_prompt_tokens = persona1_tokens + persona2_tokens + product_lead_tokens
-    total_input_tokens = policy_tokens + task_tokens # Policy text is separate input
+    total_input_tokens = policy_tokens + task_tokens
     total_estimated_tokens = total_input_tokens + total_system_prompt_tokens
 
-    if 'token_info_placeholder' in globals():
-        token_info_placeholder.caption(f"Estimated Input Tokens: ~{total_estimated_tokens:,} / {CONTEXT_LIMIT:,}")
+    if 'token_info_placeholder' in globals() and hasattr(st.session_state, 'token_info_placeholder'):
+        st.session_state.token_info_placeholder.caption(f"Estimated Input Tokens: ~{total_estimated_tokens:,} / {CONTEXT_LIMIT:,}")
 
-    if 'token_warning_placeholder' in globals():
+    if 'token_warning_placeholder' in globals() and hasattr(st.session_state, 'token_warning_placeholder'):
         if total_estimated_tokens > CONTEXT_LIMIT * WARNING_THRESHOLD:
-            token_warning_placeholder.warning(f"Inputs approaching context limit ({WARNING_THRESHOLD*100:.0f}%). Total: ~{total_estimated_tokens:,}")
+            st.session_state.token_warning_placeholder.warning(f"Inputs approaching context limit ({WARNING_THRESHOLD*100:.0f}%). Total: ~{total_estimated_tokens:,}")
         else:
-            token_warning_placeholder.empty()
+            st.session_state.token_warning_placeholder.empty()
 
 def setup_chat(
     llm_provider: str = VERTEX_AI,
     model_name: str = "gemini-1.5-pro-002",
-    policy_text: Optional[str] = None, # Policy text to be injected (optional)
-    agent_prompts: Dict[str, str] = {}
+    policy_text: Optional[str] = None,
+    agent_prompts: Dict[str, str] = {} # These are the actual system message contents
     ) -> Tuple[GroupChatManager, UserProxyAgent]:
-    """
-    Sets up the agents, group chat, and manager.
-    Uses provided agent prompts from session state.
-    Injects provided policy_text into Persona1's system message if policy_text is given.
-    """
-    logger.info(f"Setting up chat with provider: {llm_provider}, model: {model_name}")
-    if policy_text:
-        logger.info("Policy text provided, will inject into Persona1 if marker found.")
-    else:
-        logger.info("No policy text provided for injection.")
 
-    # --- LLM Configuration ---
+    logger.info(f"Setting up chat with provider: {llm_provider}, model: {model_name}")
+    if policy_text: logger.info("Policy text provided for Persona1 injection.")
 
     if llm_provider == VERTEX_AI:
         try:
-            if "gcp_credentials" not in st.secrets:
-                 raise ValueError("Missing 'gcp_credentials' section in Streamlit secrets.")
+            if "gcp_credentials" not in st.secrets: raise ValueError("Missing 'gcp_credentials' in Streamlit secrets.")
             required_keys = ["project_id", "private_key", "client_email", "type"]
-            if not all(key in st.secrets["gcp_credentials"] for key in required_keys):
-                 raise ValueError(f"Missing required keys ({required_keys}) within 'gcp_credentials' in Streamlit secrets.")
+            if not all(key in st.secrets["gcp_credentials"] for key in required_keys): raise ValueError(f"Missing required keys in 'gcp_credentials'.")
             vertex_credentials = dict(st.secrets["gcp_credentials"])
             llm_config = LLMConfiguration(
-                VERTEX_AI,
-                model_name,
-                project_id=vertex_credentials.get('project_id'),
-                location="us-central1",
-                vertex_credentials=vertex_credentials,
-            )
-            logger.info("Vertex AI LLM configuration loaded from st.secrets.")
-        except ValueError as e:
-             logger.error(f"Credential error: {e}")
-             raise
-        except Exception as e:
-            logger.error(f"Error loading Vertex AI credentials from st.secrets: {e}", exc_info=True)
-            raise
-    else:
-        raise ValueError(f"Unsupported LLM provider: {llm_provider}")
+                VERTEX_AI, model_name, project_id=vertex_credentials.get('project_id'),
+                location="us-central1", vertex_credentials=vertex_credentials)
+            logger.info("Vertex AI LLM configuration loaded.")
+        except Exception as e: logger.error(f"Vertex AI credential error: {e}", exc_info=True); raise
+    else: raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
-    if not llm_config.get_config():
-        raise ValueError("Failed to create a valid LLM configuration object or dictionary.")
+    if not llm_config.get_config(): raise ValueError("Invalid LLM configuration.")
 
-    # --- Agent Creation (Using Session State Prompts) ---
-
+    agents = {}
     try:
-        agents = {}
-        for agent_name, config in AGENT_CONFIG.items():
+        for agent_name, config_entry in AGENT_CONFIG.items():
+            # Use the prompt from agent_prompts (which is from session_state, now without DisplayName)
             system_message_content = agent_prompts.get(agent_name)
             if not system_message_content:
-                 logger.error(f"Missing system message content for agent {agent_name} in setup_chat call.")
-                 try:
-                     system_message_content = read_system_message(config["file"]) # Fallback to default
-                     logger.warning(f"Had to re-read {config['file']} for {agent_name} during setup.")
-                 except Exception as e:
-                     raise ValueError(f"Could not load system message for {agent_name}: {e}")
+                logger.error(f"Missing system message for {agent_name} in setup_chat. Attempting fallback.")
+                _, system_message_content = read_system_message(config_entry["file"]) # Fallback read
+                if not system_message_content: # Still no content
+                     raise ValueError(f"Critical: Could not load system message for {agent_name}.")
 
-            # Inject policy into Persona1's message if policy_text is provided
+            # Inject policy into Persona1's actual system message content
             if agent_name == PERSONA1_NAME and policy_text and policy_text.strip():
-                 base_persona1_sys_msg = system_message_content
-                 if POLICY_INJECTION_MARKER in base_persona1_sys_msg:
-                     system_message_content = base_persona1_sys_msg.replace(
-                         POLICY_INJECTION_MARKER,
-                         f'{POLICY_INJECTION_MARKER}
+                 if POLICY_INJECTION_MARKER in system_message_content:
+                     system_message_content = system_message_content.replace(
+                         POLICY_INJECTION_MARKER, f'{POLICY_INJECTION_MARKER}
 
-{policy_text.strip()}',
-                         1
-                     )
-                     logger.info(f"Injected policy text into {PERSONA1_NAME} system message under '{POLICY_INJECTION_MARKER}'.")
+{policy_text.strip()}', 1)
                  else:
-                     logger.warning(f"Policy injection marker '{POLICY_INJECTION_MARKER}' not found in {PERSONA1_NAME} prompt. Appending policy text instead.")
                      system_message_content += f"
 
 ## Policies
 
-{policy_text.strip()}" # Ensure it has a header
+{policy_text.strip()}"
 
             agent_type = "user_proxy" if agent_name == PRODUCT_LEAD_NAME else "assistant"
             agents[agent_name] = create_agent(
-                name=agent_name,
+                name=agent_name, # Internal name
                 llm_config=llm_config,
-                system_message_content=system_message_content,
-                system_message_file=None, # File content is already loaded
-                agent_type=agent_type,
-            )
+                system_message_content=system_message_content, # Content without DisplayName
+                agent_type=agent_type)
 
         product_lead_agent = agents[PRODUCT_LEAD_NAME]
         persona1_agent = agents[PERSONA1_NAME]
         persona2_agent = agents[PERSONA2_NAME]
-
-        logger.info("Agents created successfully using session state prompts.")
-    except Exception as e:
-        logger.error(f"Unexpected error during agent creation: {e}", exc_info=True)
-        raise
-
-    # --- Group Chat Setup ---
+        logger.info("Agents created successfully.")
+    except Exception as e: logger.error(f"Agent creation error: {e}", exc_info=True); raise
 
     chat_participants = [product_lead_agent, persona1_agent, persona2_agent]
     try:
         groupchat = create_groupchat(chat_participants, max_round=50)
-        logger.info("GroupChat created successfully.")
-    except Exception as e:
-        logger.error(f"Unexpected error during GroupChat creation: {e}", exc_info=True)
-        raise
-
-    manager_llm_config = llm_config
-    try:
-        manager = create_groupchat_manager(groupchat, manager_llm_config)
-        logger.info("GroupChatManager created successfully.")
-    except Exception as e:
-        logger.error(f"Unexpected error during GroupChatManager creation: {e}", exc_info=True)
-        raise
+        manager = create_groupchat_manager(groupchat, llm_config)
+        logger.info("GroupChat and Manager created.")
+    except Exception as e: logger.error(f"GroupChat/Manager creation error: {e}", exc_info=True); raise
 
     logger.info("Chat setup completed.")
     return manager, product_lead_agent
 
 # --- Streamlit App UI ---
-
 st.title("🤖 AI Persona Chat Session")
 
 # --- Initialization ---
-
 default_values = {
-    "chat_initialized": False,
-    "processing": False,
-    "error_message": None,
-    "config": None,
-    "manager": None,
-    "product_lead_agent": None,
-    "messages": [],
-    "next_agent": None,
-    TASK_PROMPT_KEY: "",
-    POLICY_TEXT_KEY: "",
+    "chat_initialized": False, "processing": False, "error_message": None,
+    "config": None, "manager": None, "product_lead_agent": None,
+    "messages": [], "next_agent": None,
+    TASK_PROMPT_KEY: "", POLICY_TEXT_KEY: "",
+    # AGENT_DISPLAY_NAMES_KEY is initialized in initialize_editable_prompts
 }
 for key, value in default_values.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
+    if key not in st.session_state: st.session_state[key] = value
 
-initialize_editable_prompts()
-
-# --- Configuration Loading (Placeholder) ---
+initialize_editable_prompts() # This now also populates AGENT_DISPLAY_NAMES_KEY
 
 if not st.session_state.config:
     try:
-        st.session_state.config = {
-            "llm_provider": VERTEX_AI,
-            "model_name": "gemini-1.5-pro-002"
-        }
-    except Exception as e:
-        st.sidebar.error(f"Failed to load configuration: {e}")
-        st.stop()
-
-# --- Agent Configuration Expander (Sidebar) ---
+        st.session_state.config = {"llm_provider": VERTEX_AI, "model_name": "gemini-1.5-pro-002"}
+    except Exception as e: st.sidebar.error(f"Config load failed: {e}"); st.stop()
 
 with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
     st.caption("Define the AI personas and the initial task.")
-
     for agent_name, config_info in AGENT_CONFIG.items():
+        display_name_for_label = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(agent_name, agent_name)
         if agent_name == PRODUCT_LEAD_NAME:
-            pass
+             # Optionally, allow editing User prompt if needed, or just display its name
+            pass # st.text_area(f"System Prompt for {display_name_for_label} (You):", key=config_info["key"], ...)
         else:
             st.text_area(
-                f"System Prompt for {agent_name}:",
+                f"System Prompt for {display_name_for_label} (Editable):", # Use display name in label
                 key=config_info["key"],
                 height=150,
                 disabled=st.session_state.chat_initialized,
-                help=f"Define the background, personality, and instructions for {agent_name}.",
+                help=f"Define background for {display_name_for_label}. The 'DisplayName' line is managed separately.",
                 on_change=update_token_warning
             )
-
-    token_info_placeholder = st.sidebar.empty()
-    token_warning_placeholder = st.sidebar.empty()
+    # Assign to st.session_state to make them accessible in update_token_warning
+    st.session_state.token_info_placeholder = st.sidebar.empty()
+    st.session_state.token_warning_placeholder = st.sidebar.empty()
 
     policy_text_input = st.sidebar.text_area(
-        "Enter Policy Text (Optional, for Persona1):",
-        height=100,
-        key=POLICY_TEXT_KEY,
-        disabled=st.session_state.chat_initialized,
-        help="If provided, this text will be injected into Persona1's system message under '## Policies'.",
-        on_change=update_token_warning
-    )
-
+        "Enter Policy Text (Optional, for Persona1):", height=100, key=POLICY_TEXT_KEY,
+        disabled=st.session_state.chat_initialized, on_change=update_token_warning)
     initial_prompt_input = st.sidebar.text_area(
-        "Enter the Initial Task or Question:",
-        height=150,
-        key=TASK_PROMPT_KEY,
-        disabled=st.session_state.chat_initialized,
-        help="Describe the initial task, question, or topic for the discussion.",
-        on_change=update_token_warning
-    )
+        "Enter the Initial Task or Question:", height=150, key=TASK_PROMPT_KEY,
+        disabled=st.session_state.chat_initialized, on_change=update_token_warning)
     update_token_warning()
 
-# --- Start Chat Area ---
-
 if st.sidebar.button("🚀 Start Chat", key="start_chat",
-                    disabled=st.session_state.chat_initialized
-                             or not st.session_state.get(TASK_PROMPT_KEY, "").strip()
-                             or not st.session_state.config):
-
+                    disabled=st.session_state.chat_initialized or 
+                             not st.session_state.get(TASK_PROMPT_KEY, "").strip() or 
+                             not st.session_state.config):
     task_prompt = st.session_state.get(TASK_PROMPT_KEY, "").strip()
     if not st.session_state.chat_initialized and task_prompt and st.session_state.config:
-        st.session_state.processing = True
-        st.session_state.error_message = None
+        st.session_state.processing = True; st.session_state.error_message = None
         try:
-            with st.spinner("Brewing conversations... Setting up AI personas..."):
-                logger.info("Setting up chat components with user-defined persona prompts and task...")
-
-                current_agent_prompts = {}
-                for agent_name, config_info in AGENT_CONFIG.items():
-                    current_agent_prompts[agent_name] = st.session_state.get(config_info["key"], f"Error: Missing prompt for {agent_name}")
-
+            with st.spinner("Brewing conversations..."):
+                current_agent_prompts = {name: st.session_state.get(cfg["key"], "") for name, cfg in AGENT_CONFIG.items()}
                 st.session_state.manager, st.session_state.product_lead_agent = setup_chat(
                     llm_provider=st.session_state.config.get("llm_provider", VERTEX_AI),
                     model_name=st.session_state.config.get("model_name", "gemini-1.5-pro-002"),
                     policy_text=st.session_state.get(POLICY_TEXT_KEY, ""),
-                    agent_prompts=current_agent_prompts
-                )
-                logger.info("Setup complete. Initiating chat task...")
-
+                    agent_prompts=current_agent_prompts)
                 initial_messages, next_agent = initiate_chat_task(
-                    st.session_state.product_lead_agent,
-                    st.session_state.manager,
-                    task_prompt
-                )
+                    st.session_state.product_lead_agent, st.session_state.manager, task_prompt)
                 st.session_state.messages = initial_messages
                 st.session_state.next_agent = next_agent
                 st.session_state.chat_initialized = True
-                logger.info(f"Chat initiated by {PRODUCT_LEAD_NAME}. Task: '{task_prompt}'. Next agent: {st.session_state.next_agent.name if st.session_state.next_agent else 'None'}")
-
-        except Exception as e:
-            logger.error(f"Error setting up or initiating chat task: {traceback.format_exc()}")
-            st.session_state.error_message = f"Setup/Initiation failed: {e}"
-            st.session_state.chat_initialized = False
-            st.session_state.manager = None
-            st.session_state.product_lead_agent = None
-        finally:
-            st.session_state.processing = False
+        except Exception as e: 
+            st.session_state.error_message = f"Setup/Initiation failed: {e}"; st.session_state.chat_initialized = False
+            logger.error(f"Chat start error: {traceback.format_exc()}")
+        finally: st.session_state.processing = False
         st.rerun()
 
-# --- Display Error Message ---
-
-if st.session_state.error_message:
-    st.error(st.session_state.error_message)
-
-# --- Main Chat Interaction Area ---
+if st.session_state.error_message: st.error(st.session_state.error_message)
 
 chat_container = st.container()
-
 with chat_container:
     if st.session_state.chat_initialized and st.session_state.manager:
         display_messages(st.session_state.messages)
+        next_agent_name = st.session_state.next_agent.name if st.session_state.next_agent else None
+        display_next_agent_name = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(next_agent_name, next_agent_name)
 
-        if st.session_state.next_agent and not st.session_state.processing:
-            next_agent_name = st.session_state.next_agent.name
-
+        if next_agent_name and not st.session_state.processing:
             if next_agent_name == PRODUCT_LEAD_NAME:
-                st.markdown(f"**Your turn (as User):**")
-                form_key = f'user_input_form_{len(st.session_state.messages)}'
-                input_key = f"user_input_{len(st.session_state.messages)}"
-
-                with st.form(key=form_key):
-                    user_input = st.text_input(
-                        "Enter your message:",
-                        key=input_key,
-                        disabled=st.session_state.processing,
-                        placeholder="Type your message and press Enter or click Send..."
-                    )
-                    submitted = st.form_submit_button(
-                        "✉️ Send Message",
-                        disabled=st.session_state.processing
-                    )
-                    if submitted:
-                        if not user_input.strip():
-                             st.warning("Please enter a message.")
-                        else:
-                            st.session_state.processing = True
-                            st.session_state.error_message = None
-                            should_rerun = False
-                            with st.spinner(f"Sending message..."):
+                st.markdown(f"**Your turn (as {display_next_agent_name}):**")
+                with st.form(key=f'user_input_form_{len(st.session_state.messages)}'):
+                    user_input = st.text_input("Enter your message:", key=f"user_input_{len(st.session_state.messages)}")
+                    if st.form_submit_button("✉️ Send Message"):
+                        if user_input.strip():
+                            st.session_state.processing = True; st.session_state.error_message = None
+                            with st.spinner("Sending message..."):
                                 try:
-                                    logger.info(f"Sending user message: {user_input}")
-                                    new_messages, next_agent = send_user_message(
-                                        st.session_state.manager,
-                                        st.session_state.product_lead_agent,
-                                        user_input
-                                    )
-                                    st.session_state.messages.extend(new_messages)
-                                    st.session_state.next_agent = next_agent
-                                    logger.info(f"User message sent. Next agent: {next_agent.name if next_agent else 'None'}")
-                                    should_rerun = True
-                                except Exception as e:
-                                     logger.error(f"Error sending user message: {traceback.format_exc()}")
-                                     st.session_state.error_message = f"Error sending message: {e}"
-                                     should_rerun = True
-                            st.session_state.processing = False
-                            if should_rerun:
-                                st.rerun()
-            else: # Auto-run AI Persona's Turn
-                st.markdown(f"**Running turn for:** {next_agent_name}...")
-                st.session_state.processing = True
-                st.session_state.error_message = None
-                should_rerun = False
-                with st.spinner(f"Thinking... {next_agent_name} is responding..."):
+                                    new_msgs, next_ag = send_user_message(st.session_state.manager, st.session_state.product_lead_agent, user_input)
+                                    st.session_state.messages.extend(new_msgs); st.session_state.next_agent = next_ag
+                                except Exception as e: st.session_state.error_message = f"Send error: {e}"; logger.error(f"Send error: {traceback.format_exc()}")
+                            st.session_state.processing = False; st.rerun()
+                        else: st.warning("Please enter a message.")
+            else: # AI Persona's Turn
+                st.markdown(f"**Running turn for:** {display_next_agent_name}...")
+                st.session_state.processing = True; st.session_state.error_message = None
+                with st.spinner(f"Thinking... {display_next_agent_name} is responding..."):
                     try:
-                        logger.info(f"Running step for AI agent: {next_agent_name}")
-                        new_messages, _ = run_agent_step(
-                            st.session_state.manager,
-                            st.session_state.next_agent
-                        )
-                        st.session_state.messages.extend(new_messages)
-                        st.session_state.next_agent = st.session_state.product_lead_agent
-                        logger.info(f"AI Agent {next_agent_name} finished. Forcing next agent to: {st.session_state.product_lead_agent.name}")
-                        should_rerun = True
-                    except Exception as e:
-                        logger.error(f"Error during {next_agent_name}'s turn: {traceback.format_exc()}")
-                        st.session_state.error_message = f"Error during {next_agent_name}'s turn: {e}"
-                        st.session_state.next_agent = None
-                        should_rerun = True
-                st.session_state.processing = False
-                if should_rerun:
-                     st.rerun()
-        elif not st.session_state.next_agent and st.session_state.chat_initialized and not st.session_state.processing:
+                        new_msgs, _ = run_agent_step(st.session_state.manager, st.session_state.next_agent)
+                        st.session_state.messages.extend(new_msgs)
+                        st.session_state.next_agent = st.session_state.product_lead_agent # Default back to user
+                    except Exception as e: 
+                        st.session_state.error_message = f"Error during {display_next_agent_name}'s turn: {e}"; st.session_state.next_agent = None
+                        logger.error(f"{display_next_agent_name} turn error: {traceback.format_exc()}")
+                st.session_state.processing = False; st.rerun()
+        elif not next_agent_name and st.session_state.chat_initialized and not st.session_state.processing:
              st.success("Chat finished or awaiting next step.")
 
-# --- Clear Chat Button ---
-
-if st.session_state.chat_initialized or st.session_state.error_message or not st.session_state.manager:
+if st.session_state.chat_initialized or st.session_state.error_message:
      if st.sidebar.button("Clear Chat / Reset", key="clear_chat"):
-         st.session_state.chat_initialized = False
-         st.session_state.processing = False
-         st.session_state.error_message = None
-         st.session_state.messages = []
-         st.session_state.next_agent = None
-         st.session_state.manager = None
-         st.session_state.product_lead_agent = None
-         st.session_state[TASK_PROMPT_KEY] = ""
-         st.session_state[POLICY_TEXT_KEY] = ""
-         logger.info("Chat state cleared. Ready for new configuration/start.")
-         update_token_warning()
-         st.rerun()
+         for key in default_values: st.session_state[key] = default_values[key] # Reset to defaults
+         if AGENT_DISPLAY_NAMES_KEY in st.session_state: del st.session_state[AGENT_DISPLAY_NAMES_KEY]
+         # Re-initialize prompts and display names for a fresh start
+         initialize_editable_prompts()
+         logger.info("Chat state cleared.")
+         update_token_warning(); st.rerun()
 
 def display_messages(messages):
-    """Displays chat messages, limiting the number shown."""
     num_messages = len(messages)
     start_index = max(0, num_messages - MAX_MESSAGES_DISPLAY)
-    if num_messages > MAX_MESSAGES_DISPLAY:
-        st.warning(f"Displaying last {MAX_MESSAGES_DISPLAY} of {num_messages} messages.")
+    if num_messages > MAX_MESSAGES_DISPLAY: st.warning(f"Displaying last {MAX_MESSAGES_DISPLAY} of {num_messages} messages.")
 
-    for i, msg in enumerate(messages[start_index:], start=start_index):
-        sender_name = msg.get("name", "System")
-        if not sender_name and "role" in msg:
-             sender_name = msg["role"].capitalize()
+    for msg in messages[start_index:]:
+        internal_sender_name = msg.get("name", "System")
+        # Get the display name from session state, fallback to internal name
+        sender_display_name = st.session_state.get(AGENT_DISPLAY_NAMES_KEY, {}).get(internal_sender_name, internal_sender_name)
 
         content = msg.get("content", "")
+        # ... (rest of content processing remains the same)
         if isinstance(content, list):
             parts = []
             for item in content:
@@ -471,15 +325,13 @@ def display_messages(messages):
         elif not isinstance(content, str):
              content = str(content)
 
-        if sender_name == PRODUCT_LEAD_NAME:
-            with st.chat_message("user", avatar="🧑"):
-                 st.markdown(f"""**You ({PRODUCT_LEAD_NAME}):**
-{content}""")
-        elif sender_name in [PERSONA1_NAME, PERSONA2_NAME]:
-            with st.chat_message("assistant", avatar="🤖"):
-                 st.markdown(f"""**{sender_name}:**
-{content}""")
-        else:
-            with st.chat_message("system", avatar="⚙️"):
-                 st.markdown(f"""_{sender_name}: {content}_""")
+        avatar_map = {PRODUCT_LEAD_NAME: "🧑", PERSONA1_NAME: "🤖", PERSONA2_NAME: "🧐"} # Example, can be extended
+        avatar = avatar_map.get(internal_sender_name, "⚙️") # Default avatar
 
+        with st.chat_message("user" if internal_sender_name == PRODUCT_LEAD_NAME else "assistant", avatar=avatar):
+            if internal_sender_name == PRODUCT_LEAD_NAME:
+                st.markdown(f"""**You ({sender_display_name}):**
+{content}""")
+            else:
+                 st.markdown(f"""**{sender_display_name}:**
+{content}""")
