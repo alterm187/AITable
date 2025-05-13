@@ -6,9 +6,13 @@ import json
 import re
 import functools # Added for functools.partial
 
-from LLMConfiguration import LLMConfiguration, logger
+from LLMConfiguration import logger # Assuming LLMConfiguration also has a logger
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging specifically for this module if not inheriting
+# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Use a named logger for this module to avoid conflicts if LLMConfiguration has its own basicConfig
+module_logger = logging.getLogger(__name__)
+module_logger.setLevel(logging.DEBUG) # Or whatever level is appropriate
 
 def read_system_message(filename: str) -> Tuple[Optional[str], str]:
     default_system_message = "You are a helpful assistant."
@@ -24,18 +28,18 @@ def read_system_message(filename: str) -> Tuple[Optional[str], str]:
                     display_name = match.group(1).strip()
                     system_message_content = "
 ".join(lines[1:]).strip()
-                    logger.info(f"Parsed DisplayName '{display_name}' from {filename}")
+                    module_logger.info(f"Parsed DisplayName '{display_name}' from {filename}")
                 else:
-                    logger.info(f"No DisplayName found in first line of {filename}.")
+                    module_logger.info(f"No DisplayName found in first line of {filename}.")
             else:
-                 logger.warning(f"System message file {filename} is empty. Using default.")
+                 module_logger.warning(f"System message file {filename} is empty. Using default.")
                  return None, default_system_message
             return display_name, system_message_content
     except FileNotFoundError:
-        logger.error(f"System message file not found: {filename}")
+        module_logger.error(f"System message file not found: {filename}")
         return None, default_system_message
     except Exception as e:
-        logger.error(f"Error reading system message file {filename}: {e}")
+        module_logger.error(f"Error reading system message file {filename}: {e}")
         return None, default_system_message
 
 def create_agent(
@@ -59,26 +63,26 @@ def custom_speaker_selection(
     groupchat: GroupChat, 
     agent_display_names: Dict[str, str]
 ) -> Agent:
-    logger.debug(f"--- Entering custom_speaker_selection (with DisplayNames) ---")
-    logger.debug(f"Last speaker: {last_speaker.name if last_speaker else 'None'}")
-    logger.debug(f"Available agent code names: {[a.name for a in groupchat.agents]}")
-    logger.debug(f"Agent display names map: {agent_display_names}")
+    module_logger.debug(f"--- Entering custom_speaker_selection (with DisplayNames) ---")
+    module_logger.debug(f"Last speaker: {last_speaker.name if last_speaker else 'None'}")
+    module_logger.debug(f"Available agent code names: {[a.name for a in groupchat.agents]}")
+    module_logger.debug(f"Agent display names map: {agent_display_names}")
 
     product_lead_agent = next((agent for agent in groupchat.agents if isinstance(agent, UserProxyAgent)), None)
     if not product_lead_agent:
-        logger.error("No UserProxyAgent (ProductLead) found!")
+        module_logger.error("No UserProxyAgent (ProductLead) found!")
         return groupchat.agents[0] if groupchat.agents else ValueError("No agents in groupchat!")
 
     if not groupchat.messages:
-        logger.info("No messages yet, ProductLead by default.")
+        module_logger.info("No messages yet, ProductLead by default.")
         return product_lead_agent
 
     last_message_obj = groupchat.messages[-1]
     message_content = str(last_message_obj.get('content', '')).strip()
-    logger.debug(f"Checking message content for selection: '{message_content[:150]}{'...' if len(message_content) > 150 else ''}'")
+    module_logger.debug(f"Checking message content for selection: '{message_content[:150]}{'...' if len(message_content) > 150 else ''}'")
 
     if message_content.rstrip().endswith("TERMINATE"):
-        logger.info("TERMINATE detected. Selecting ProductLead.")
+        module_logger.info("TERMINATE detected. Selecting ProductLead.")
         return product_lead_agent
 
     lower_message_content = message_content.lower()
@@ -89,7 +93,7 @@ def custom_speaker_selection(
         agent_code_name = agent.name
         display_name = agent_display_names.get(agent_code_name)
         if not display_name:
-            logger.warning(f"Display name not found for agent code name '{agent_code_name}'. Skipping this agent for mention check.")
+            module_logger.warning(f"Display name not found for agent code name '{agent_code_name}'. Skipping this agent for mention check.")
             continue
         
         pattern = display_name.lower()
@@ -110,27 +114,27 @@ def custom_speaker_selection(
         if current_idx > last_mention_index:
             last_mention_index = current_idx
             agent_to_select = agent
-            logger.debug(f"Mention of '{display_name}' (for '{agent_code_name}') at index {current_idx}. Selected.")
+            module_logger.debug(f"Mention of '{display_name}' (for '{agent_code_name}') at index {current_idx}. Selected.")
         elif current_idx == last_mention_index and current_idx != -1:
             current_selected_display_name = agent_display_names.get(agent_to_select.name, "")
             if len(pattern) > len(current_selected_display_name.lower()):
                 agent_to_select = agent
-                logger.debug(f"Mention of '{display_name}' at same index {current_idx}, but is longer. Switched.")
+                module_logger.debug(f"Mention of '{display_name}' at same index {current_idx}, but is longer. Switched.")
     
     selected_agent_name = "None"
     if agent_to_select:
         selected_agent_name = agent_to_select.name
         if agent_to_select == last_speaker:
-            logger.info(f"Speaker '{last_speaker.name}' mentioned themselves ('{agent_display_names.get(last_speaker.name)}'). Defaulting to ProductLead.")
+            module_logger.info(f"Speaker '{last_speaker.name}' mentioned themselves ('{agent_display_names.get(last_speaker.name)}'). Defaulting to ProductLead.")
             next_speaker = product_lead_agent
         else:
-            logger.info(f"Next speaker by mention: '{agent_to_select.name}' (DisplayName: '{agent_display_names.get(agent_to_select.name)}').")
+            module_logger.info(f"Next speaker by mention: '{agent_to_select.name}' (DisplayName: '{agent_display_names.get(agent_to_select.name)}').")
             next_speaker = agent_to_select
     else:
-        logger.info(f"No specific agent display name mentioned. Defaulting to ProductLead.")
+        module_logger.info(f"No specific agent display name mentioned. Defaulting to ProductLead.")
         next_speaker = product_lead_agent
 
-    logger.debug(f"--- Exiting custom_speaker_selection (Selected: {next_speaker.name if next_speaker else 'None'}) ---")
+    module_logger.debug(f"--- Exiting custom_speaker_selection (Selected: {next_speaker.name if next_speaker else 'None'}) ---")
     return next_speaker
 
 def create_groupchat(agents: Sequence[Agent], agent_display_names: Dict[str, str], max_round: int = 50) -> GroupChat:
@@ -154,18 +158,39 @@ def create_groupchat_manager(groupchat: GroupChat, llm_config: LLMConfiguration)
     return GroupChatManager(groupchat=groupchat, llm_config=config, is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE"))
 
 def initiate_chat_task(
-    user_agent: UserProxyAgent, manager: GroupChatManager, initial_prompt: str
+    user_agent: UserProxyAgent, 
+    manager: GroupChatManager, 
+    initial_prompt: str,
+    system_content_for_group: Optional[str] = None # New parameter
     ) -> Tuple[List[Dict], Optional[Agent]]:
     manager.groupchat.reset()
-    initial_message = {"role": "user", "content": initial_prompt.strip(), "name": user_agent.name}
+    
+    final_prompt = initial_prompt.strip()
+    if system_content_for_group and system_content_for_group.strip():
+        formatted_content = (
+            f"Contextual Content provided by the User (this is not part of the direct task, but general context for all assistants):
+"
+            f"---
+"
+            f"{system_content_for_group.strip()}
+"
+            f"---
+
+"
+            f"Original Task from User:
+"
+            f"{final_prompt}"
+        )
+        final_prompt = formatted_content
+        module_logger.info(f"Prepended system_content_for_group to the initial_prompt.")
+
+    initial_message = {"role": "user", "content": final_prompt, "name": user_agent.name}
     manager.groupchat.messages.append(initial_message)
-    logger.info(f"Initial message from {user_agent.name} added to manager history.")
+    module_logger.info(f"Initial message from {user_agent.name} (potentially with context) added to manager history.")
 
     # Let speaker selection logic (which now uses display names) pick the first AI responder
-    # The selection function will be called by the manager when a reply is needed.
-    # We simulate the first turn by asking the manager to select speaker after user's initial message.
     next_speaker = manager.groupchat.select_speaker(user_agent, manager.groupchat)
-    logger.info(f"Initiate chat: First AI speaker selected by custom logic: {next_speaker.name if next_speaker else 'None'}")
+    module_logger.info(f"Initiate chat: First AI speaker selected by custom logic: {next_speaker.name if next_speaker else 'None'}")
 
     return [initial_message], next_speaker
 
@@ -174,7 +199,7 @@ def run_agent_step(manager: GroupChatManager, speaker: Agent) -> Tuple[List[Dict
     next_speaker = None
     product_lead_agent = next((agent for agent in manager.groupchat.agents if isinstance(agent, UserProxyAgent)), None)
     try:
-        logger.info(f"--- Running step for agent: {speaker.name} ---")
+        module_logger.info(f"--- Running step for agent: {speaker.name} ---")
         messages_context = manager.groupchat.messages
         len_before_reply = len(messages_context)
         reply = speaker.generate_reply(messages=messages_context, sender=manager)
@@ -191,18 +216,18 @@ def run_agent_step(manager: GroupChatManager, speaker: Agent) -> Tuple[List[Dict
                 manual_message = {"role": role, "content": reply_content, "name": speaker.name}
                 manager.groupchat.messages.append(manual_message)
                 newly_added_messages = [manual_message]
-                logger.info(f"Manually added message from {speaker.name} (Role: {role}).")
+                module_logger.info(f"Manually added message from {speaker.name} (Role: {role}).")
             else:
-                logger.warning(f"Could not extract content from reply by {speaker.name}.")
+                module_logger.warning(f"Could not extract content from reply by {speaker.name}.")
         else:
-             logger.info(f"Agent {speaker.name} generated no reply.")
+             module_logger.info(f"Agent {speaker.name} generated no reply.")
 
         next_speaker = manager.groupchat.select_speaker(speaker, manager.groupchat)
-        logger.info(f"Step for {speaker.name} done. Next: {next_speaker.name if next_speaker else 'None'}")
+        module_logger.info(f"Step for {speaker.name} done. Next: {next_speaker.name if next_speaker else 'None'}")
     except Exception as e:
-        logger.error(f"Error during agent step for {speaker.name}: {e}", exc_info=True)
+        module_logger.error(f"Error during agent step for {speaker.name}: {e}", exc_info=True)
         if product_lead_agent: next_speaker = product_lead_agent
-        else: logger.error("ProductLead agent not found for error fallback.")
+        else: module_logger.error("ProductLead agent not found for error fallback.")
     return newly_added_messages, next_speaker
 
 def send_user_message(manager: GroupChatManager, user_agent: UserProxyAgent, user_message: str) -> Tuple[List[Dict], Optional[Agent]]:
@@ -219,5 +244,5 @@ def send_user_message(manager: GroupChatManager, user_agent: UserProxyAgent, use
     message_dict = {"role": "user", "content": user_message.strip(), "name": user_agent.name}
     manager.groupchat.messages.append(message_dict)
     next_speaker = manager.groupchat.select_speaker(user_agent, manager.groupchat)
-    logger.info(f"User message sent. Selected next: {next_speaker.name if next_speaker else 'None'}")
+    module_logger.info(f"User message sent. Selected next: {next_speaker.name if next_speaker else 'None'}")
     return [message_dict], next_speaker
