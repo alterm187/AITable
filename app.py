@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # --- Constants ---
 
-PRODUCT_LEAD_NAME = "User"
+PRODUCT_LEAD_NAME = "User" # Internal code name for the user agent
 PERSONA1_NAME = "Persona1"
 PERSONA2_NAME = "Persona2"
 
@@ -44,7 +44,6 @@ PERSONA1_EDIT_KEY = "persona1_editable_prompt"
 PERSONA2_EDIT_KEY = "persona2_editable_prompt"
 PRODUCT_LEAD_EDIT_KEY = "product_lead_editable_prompt"
 
-# New key for storing display names
 AGENT_DISPLAY_NAMES_KEY = "agent_display_names"
 
 AGENT_CONFIG = {
@@ -62,25 +61,25 @@ def estimate_tokens(text: str) -> int:
     return len(text or "") // 4
 
 def initialize_editable_prompts():
-    """Loads default agent prompts and display names into session state."""
     if AGENT_DISPLAY_NAMES_KEY not in st.session_state:
         st.session_state[AGENT_DISPLAY_NAMES_KEY] = {}
 
-    for agent_name, config in AGENT_CONFIG.items():
-        if config["key"] not in st.session_state:
+    for agent_code_name, config in AGENT_CONFIG.items():
+        if config["key"] not in st.session_state or agent_code_name not in st.session_state[AGENT_DISPLAY_NAMES_KEY]:
             try:
-                # read_system_message now returns (display_name, content)
                 display_name, system_content = read_system_message(config["file"])
                 st.session_state[config["key"]] = system_content
-                # Store display name, defaulting to agent_name if not parsed
-                st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_name] = display_name or agent_name
-                logger.info(f"Loaded default system message for {agent_name} (Display: {st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_name]}) into session state ({config['key']}).")
+                # Store display name, defaulting to agent_code_name if not parsed from file
+                actual_display_name = display_name or agent_code_name 
+                st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_code_name] = actual_display_name
+                logger.info(f"Loaded prompt for '{agent_code_name}' (Display: '{actual_display_name}') into state ('{config['key']}').")
             except Exception as e:
-                st.session_state[config["key"]] = f"Error loading default from {config['file']}: {e}"
-                st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_name] = agent_name # Fallback display name
-                logger.error(f"Failed to load initial prompt for {agent_name} from {config['file']}: {e}")
+                st.session_state[config["key"]] = f"Error loading from {config['file']}: {e}"
+                st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_code_name] = agent_code_name # Fallback
+                logger.error(f"Failed to load prompt for {agent_code_name} from {config['file']}: {e}")
 
 def update_token_warning():
+    # ... (token warning logic remains the same)
     policy_text = st.session_state.get(POLICY_TEXT_KEY, "")
     task_text = st.session_state.get(TASK_PROMPT_KEY, "")
     persona1_prompt = st.session_state.get(PERSONA1_EDIT_KEY, "")
@@ -97,25 +96,25 @@ def update_token_warning():
     total_input_tokens = policy_tokens + task_tokens
     total_estimated_tokens = total_input_tokens + total_system_prompt_tokens
 
-    if 'token_info_placeholder' in globals() and hasattr(st.session_state, 'token_info_placeholder'):
+    if hasattr(st.session_state, 'token_info_placeholder') and st.session_state.token_info_placeholder:
         st.session_state.token_info_placeholder.caption(f"Estimated Input Tokens: ~{total_estimated_tokens:,} / {CONTEXT_LIMIT:,}")
 
-    if 'token_warning_placeholder' in globals() and hasattr(st.session_state, 'token_warning_placeholder'):
+    if hasattr(st.session_state, 'token_warning_placeholder') and st.session_state.token_warning_placeholder:
         if total_estimated_tokens > CONTEXT_LIMIT * WARNING_THRESHOLD:
             st.session_state.token_warning_placeholder.warning(f"Inputs approaching context limit ({WARNING_THRESHOLD*100:.0f}%). Total: ~{total_estimated_tokens:,}")
         else:
             st.session_state.token_warning_placeholder.empty()
 
 def setup_chat(
-    llm_provider: str = VERTEX_AI,
-    model_name: str = "gemini-1.5-pro-002",
-    policy_text: Optional[str] = None,
-    agent_prompts: Dict[str, str] = {} # These are the actual system message contents
+    llm_provider: str,
+    model_name: str,
+    policy_text: Optional[str],
+    agent_prompts: Dict[str, str], # agent_code_name: system_message_content
+    agent_display_names: Dict[str, str] # agent_code_name: display_name
     ) -> Tuple[GroupChatManager, UserProxyAgent]:
 
     logger.info(f"Setting up chat with provider: {llm_provider}, model: {model_name}")
-    if policy_text: logger.info("Policy text provided for Persona1 injection.")
-
+    # ... (LLM config setup remains the same) ...
     if llm_provider == VERTEX_AI:
         try:
             if "gcp_credentials" not in st.secrets: raise ValueError("Missing 'gcp_credentials' in Streamlit secrets.")
@@ -131,22 +130,17 @@ def setup_chat(
 
     if not llm_config.get_config(): raise ValueError("Invalid LLM configuration.")
 
-    agents = {}
+    agents_dict = {}
     try:
-        for agent_name, config_entry in AGENT_CONFIG.items():
-            # Use the prompt from agent_prompts (which is from session_state, now without DisplayName)
-            system_message_content = agent_prompts.get(agent_name)
+        for agent_code_name, config_entry in AGENT_CONFIG.items():
+            system_message_content = agent_prompts.get(agent_code_name)
             if not system_message_content:
-                logger.error(f"Missing system message for {agent_name} in setup_chat. Attempting fallback.")
-                _, system_message_content = read_system_message(config_entry["file"]) # Fallback read
-                if not system_message_content: # Still no content
-                     raise ValueError(f"Critical: Could not load system message for {agent_name}.")
+                _, system_message_content = read_system_message(config_entry["file"]) # Fallback
+                if not system_message_content: raise ValueError(f"Could not load system message for {agent_code_name}.")
 
-            # Inject policy into Persona1's actual system message content
-            if agent_name == PERSONA1_NAME and policy_text and policy_text.strip():
+            if agent_code_name == PERSONA1_NAME and policy_text and policy_text.strip():
                  if POLICY_INJECTION_MARKER in system_message_content:
-                     system_message_content = system_message_content.replace(
-                         POLICY_INJECTION_MARKER, f'{POLICY_INJECTION_MARKER}
+                     system_message_content = system_message_content.replace(POLICY_INJECTION_MARKER, f'{POLICY_INJECTION_MARKER}
 
 {policy_text.strip()}', 1)
                  else:
@@ -156,27 +150,25 @@ def setup_chat(
 
 {policy_text.strip()}"
 
-            agent_type = "user_proxy" if agent_name == PRODUCT_LEAD_NAME else "assistant"
-            agents[agent_name] = create_agent(
-                name=agent_name, # Internal name
+            agent_type = "user_proxy" if agent_code_name == PRODUCT_LEAD_NAME else "assistant"
+            agents_dict[agent_code_name] = create_agent(
+                name=agent_code_name, # Internal code name
                 llm_config=llm_config,
-                system_message_content=system_message_content, # Content without DisplayName
+                system_message_content=system_message_content,
                 agent_type=agent_type)
-
-        product_lead_agent = agents[PRODUCT_LEAD_NAME]
-        persona1_agent = agents[PERSONA1_NAME]
-        persona2_agent = agents[PERSONA2_NAME]
         logger.info("Agents created successfully.")
     except Exception as e: logger.error(f"Agent creation error: {e}", exc_info=True); raise
 
-    chat_participants = [product_lead_agent, persona1_agent, persona2_agent]
+    product_lead_agent = agents_dict[PRODUCT_LEAD_NAME]
+    chat_participants = list(agents_dict.values())
+
     try:
-        groupchat = create_groupchat(chat_participants, max_round=50)
+        # Pass agent_display_names to create_groupchat
+        groupchat = create_groupchat(chat_participants, agent_display_names, max_round=50)
         manager = create_groupchat_manager(groupchat, llm_config)
         logger.info("GroupChat and Manager created.")
     except Exception as e: logger.error(f"GroupChat/Manager creation error: {e}", exc_info=True); raise
 
-    logger.info("Chat setup completed.")
     return manager, product_lead_agent
 
 # --- Streamlit App UI ---
@@ -188,12 +180,11 @@ default_values = {
     "config": None, "manager": None, "product_lead_agent": None,
     "messages": [], "next_agent": None,
     TASK_PROMPT_KEY: "", POLICY_TEXT_KEY: "",
-    # AGENT_DISPLAY_NAMES_KEY is initialized in initialize_editable_prompts
 }
 for key, value in default_values.items():
     if key not in st.session_state: st.session_state[key] = value
 
-initialize_editable_prompts() # This now also populates AGENT_DISPLAY_NAMES_KEY
+initialize_editable_prompts() # Populates AGENT_DISPLAY_NAMES_KEY and editable prompts
 
 if not st.session_state.config:
     try:
@@ -202,26 +193,22 @@ if not st.session_state.config:
 
 with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
     st.caption("Define the AI personas and the initial task.")
-    for agent_name, config_info in AGENT_CONFIG.items():
-        display_name_for_label = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(agent_name, agent_name)
-        if agent_name == PRODUCT_LEAD_NAME:
-             # Optionally, allow editing User prompt if needed, or just display its name
-            pass # st.text_area(f"System Prompt for {display_name_for_label} (You):", key=config_info["key"], ...)
-        else:
-            st.text_area(
-                f"System Prompt for {display_name_for_label} (Editable):", # Use display name in label
-                key=config_info["key"],
-                height=150,
-                disabled=st.session_state.chat_initialized,
-                help=f"Define background for {display_name_for_label}. The 'DisplayName' line is managed separately.",
-                on_change=update_token_warning
-            )
-    # Assign to st.session_state to make them accessible in update_token_warning
+    for agent_code_name, config_info in AGENT_CONFIG.items():
+        # Use display name from session state for the label
+        display_name_for_label = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(agent_code_name, agent_code_name)
+        st.text_area(
+            f"System Prompt for {display_name_for_label} (Editable):",
+            key=config_info["key"],
+            height=150,
+            disabled=st.session_state.chat_initialized,
+            help=f"Define background for {display_name_for_label}. The 'DisplayName' is read from the first line of the .md file.",
+            on_change=update_token_warning
+        )
     st.session_state.token_info_placeholder = st.sidebar.empty()
     st.session_state.token_warning_placeholder = st.sidebar.empty()
 
     policy_text_input = st.sidebar.text_area(
-        "Enter Policy Text (Optional, for Persona1):", height=100, key=POLICY_TEXT_KEY,
+        "Enter Policy Text (Optional, for Policy Expert):", height=100, key=POLICY_TEXT_KEY,
         disabled=st.session_state.chat_initialized, on_change=update_token_warning)
     initial_prompt_input = st.sidebar.text_area(
         "Enter the Initial Task or Question:", height=150, key=TASK_PROMPT_KEY,
@@ -238,11 +225,16 @@ if st.sidebar.button("🚀 Start Chat", key="start_chat",
         try:
             with st.spinner("Brewing conversations..."):
                 current_agent_prompts = {name: st.session_state.get(cfg["key"], "") for name, cfg in AGENT_CONFIG.items()}
+                # Get the display names from session state
+                current_display_names = st.session_state[AGENT_DISPLAY_NAMES_KEY]
+
                 st.session_state.manager, st.session_state.product_lead_agent = setup_chat(
                     llm_provider=st.session_state.config.get("llm_provider", VERTEX_AI),
                     model_name=st.session_state.config.get("model_name", "gemini-1.5-pro-002"),
                     policy_text=st.session_state.get(POLICY_TEXT_KEY, ""),
-                    agent_prompts=current_agent_prompts)
+                    agent_prompts=current_agent_prompts,
+                    agent_display_names=current_display_names # Pass display names here
+                )
                 initial_messages, next_agent = initiate_chat_task(
                     st.session_state.product_lead_agent, st.session_state.manager, task_prompt)
                 st.session_state.messages = initial_messages
@@ -259,12 +251,13 @@ if st.session_state.error_message: st.error(st.session_state.error_message)
 chat_container = st.container()
 with chat_container:
     if st.session_state.chat_initialized and st.session_state.manager:
-        display_messages(st.session_state.messages)
-        next_agent_name = st.session_state.next_agent.name if st.session_state.next_agent else None
-        display_next_agent_name = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(next_agent_name, next_agent_name)
+        display_messages(st.session_state.messages) # display_messages uses AGENT_DISPLAY_NAMES_KEY from session_state
+        next_agent_code_name = st.session_state.next_agent.name if st.session_state.next_agent else None
+        # Use display name for whose turn it is
+        display_next_agent_name = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(next_agent_code_name, next_agent_code_name)
 
-        if next_agent_name and not st.session_state.processing:
-            if next_agent_name == PRODUCT_LEAD_NAME:
+        if next_agent_code_name and not st.session_state.processing:
+            if next_agent_code_name == PRODUCT_LEAD_NAME: # Still use code name for this check
                 st.markdown(f"**Your turn (as {display_next_agent_name}):**")
                 with st.form(key=f'user_input_form_{len(st.session_state.messages)}'):
                     user_input = st.text_input("Enter your message:", key=f"user_input_{len(st.session_state.messages)}")
@@ -285,21 +278,27 @@ with chat_container:
                     try:
                         new_msgs, _ = run_agent_step(st.session_state.manager, st.session_state.next_agent)
                         st.session_state.messages.extend(new_msgs)
-                        st.session_state.next_agent = st.session_state.product_lead_agent # Default back to user
+                        # Speaker selection logic now handles who is next, including returning to user
+                        st.session_state.next_agent = st.session_state.manager.groupchat.select_speaker(
+                            st.session_state.next_agent, # last speaker was current agent
+                            st.session_state.manager.groupchat
+                        ) 
                     except Exception as e: 
                         st.session_state.error_message = f"Error during {display_next_agent_name}'s turn: {e}"; st.session_state.next_agent = None
                         logger.error(f"{display_next_agent_name} turn error: {traceback.format_exc()}")
                 st.session_state.processing = False; st.rerun()
-        elif not next_agent_name and st.session_state.chat_initialized and not st.session_state.processing:
+        elif not next_agent_code_name and st.session_state.chat_initialized and not st.session_state.processing:
              st.success("Chat finished or awaiting next step.")
 
 if st.session_state.chat_initialized or st.session_state.error_message:
      if st.sidebar.button("Clear Chat / Reset", key="clear_chat"):
-         for key in default_values: st.session_state[key] = default_values[key] # Reset to defaults
-         if AGENT_DISPLAY_NAMES_KEY in st.session_state: del st.session_state[AGENT_DISPLAY_NAMES_KEY]
-         # Re-initialize prompts and display names for a fresh start
-         initialize_editable_prompts()
-         logger.info("Chat state cleared.")
+         # Clear all relevant session state keys
+         keys_to_clear = list(default_values.keys()) + [PERSONA1_EDIT_KEY, PERSONA2_EDIT_KEY, PRODUCT_LEAD_EDIT_KEY, AGENT_DISPLAY_NAMES_KEY]
+         for key in keys_to_clear:
+             if key in st.session_state: del st.session_state[key]
+         # Re-initialize after clearing
+         initialize_editable_prompts() 
+         logger.info("Chat state cleared and prompts re-initialized.")
          update_token_warning(); st.rerun()
 
 def display_messages(messages):
@@ -308,30 +307,19 @@ def display_messages(messages):
     if num_messages > MAX_MESSAGES_DISPLAY: st.warning(f"Displaying last {MAX_MESSAGES_DISPLAY} of {num_messages} messages.")
 
     for msg in messages[start_index:]:
-        internal_sender_name = msg.get("name", "System")
-        # Get the display name from session state, fallback to internal name
+        internal_sender_name = msg.get("name", "System") # This is the agent code name
         sender_display_name = st.session_state.get(AGENT_DISPLAY_NAMES_KEY, {}).get(internal_sender_name, internal_sender_name)
-
         content = msg.get("content", "")
-        # ... (rest of content processing remains the same)
         if isinstance(content, list):
-            parts = []
-            for item in content:
-                if isinstance(item, dict) and "text" in item: parts.append(item["text"])
-                elif isinstance(item, str): parts.append(item)
-                else: parts.append(str(item))
+            parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
             content = "
 ".join(parts)
-        elif not isinstance(content, str):
-             content = str(content)
+        elif not isinstance(content, str): content = str(content)
 
-        avatar_map = {PRODUCT_LEAD_NAME: "🧑", PERSONA1_NAME: "🤖", PERSONA2_NAME: "🧐"} # Example, can be extended
-        avatar = avatar_map.get(internal_sender_name, "⚙️") # Default avatar
+        avatar_map = {PRODUCT_LEAD_NAME: "🧑", PERSONA1_NAME: "🤖", PERSONA2_NAME: "🧐"}
+        avatar = avatar_map.get(internal_sender_name, "⚙️")
 
         with st.chat_message("user" if internal_sender_name == PRODUCT_LEAD_NAME else "assistant", avatar=avatar):
-            if internal_sender_name == PRODUCT_LEAD_NAME:
-                st.markdown(f"""**You ({sender_display_name}):**
-{content}""")
-            else:
-                 st.markdown(f"""**{sender_display_name}:**
+            # Always show display name
+            st.markdown(f"""**{sender_display_name}:**
 {content}""")
