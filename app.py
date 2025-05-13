@@ -178,8 +178,8 @@ def display_messages(messages):
         avatar = avatar_map.get(internal_sender_name, "⚙️")
 
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
-            # Always show display name
-            st.markdown(f'"""**{sender_display_name}:**\n{content}"""')
+            # Display name and content without extra quotes or redundant names
+            st.markdown(f"**{sender_display_name}:**\n{content}")
 
 # --- Streamlit App UI ---
 st.title("🤖 Chat with agentT and agentH")
@@ -292,11 +292,8 @@ with chat_container:
                     try:
                         new_msgs, _ = run_agent_step(st.session_state.manager, st.session_state.next_agent)
                         st.session_state.messages.extend(new_msgs)
-                        # Speaker selection logic now handles who is next, including returning to user
-                        st.session_state.next_agent = st.session_state.manager.groupchat.select_speaker(
-                            st.session_state.next_agent, # last speaker was current agent
-                            st.session_state.manager.groupchat
-                        )
+                        # Force next speaker to be the user
+                        st.session_state.next_agent = st.session_state.user_agent
                     except Exception as e:
                         st.session_state.error_message = f"Error during {display_next_agent_name}'s turn: {e}"; st.session_state.next_agent = None
                         logger.error(f"{display_next_agent_name} turn error: {traceback.format_exc()}")
