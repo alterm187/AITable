@@ -6,7 +6,7 @@ import json
 import re
 import functools # Added for functools.partial
 
-from LLMConfiguration import logger # Assuming LLMConfiguration also has a logger
+from .LLMConfiguration import LLMConfiguration, logger # Assuming LLMConfiguration also has a logger
 
 # Configure logging specifically for this module if not inheriting
 # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
