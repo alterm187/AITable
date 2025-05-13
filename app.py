@@ -141,15 +141,9 @@ def setup_chat(
             # Removed old policy injection logic for PERSONA1_NAME
             # if agent_code_name == PERSONA1_NAME and content_text and content_text.strip():
             #      if CONTENT_INJECTION_MARKER in system_message_content:
-            #          system_message_content = system_message_content.replace(CONTENT_INJECTION_MARKER, f'{CONTENT_INJECTION_MARKER}
-
-{content_text.strip()}', 1)
+            #          system_message_content = system_message_content.replace(CONTENT_INJECTION_MARKER, f'{CONTENT_INJECTION_MARKER}\\n\nn{content_text.strip()}\', 1)
             #      else:
-            #          system_message_content += f"
-
-## Content
-
-{content_text.strip()}" # Changed from Policies to Content
+            #          system_message_content += f\"\\n\\n## Content\\n\\n{content_text.strip()}\" # Changed from Policies to Content
 
             agent_type = "user_proxy" if agent_code_name == PRODUCT_LEAD_NAME else "assistant"
             agents_dict[agent_code_name] = create_agent(
@@ -317,8 +311,7 @@ def display_messages(messages):
         content = msg.get("content", "")
         if isinstance(content, list):
             parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
-            content = "
-".join(parts)
+            content = "\n".join(parts)
         elif not isinstance(content, str): content = str(content)
 
         avatar_map = {PRODUCT_LEAD_NAME: "🧑", PERSONA1_NAME: "🤖", PERSONA2_NAME: "🧐"}
@@ -326,5 +319,4 @@ def display_messages(messages):
 
         with st.chat_message("user" if internal_sender_name == PRODUCT_LEAD_NAME else "assistant", avatar=avatar):
             # Always show display name
-            st.markdown(f'"""**{sender_display_name}:**
-{content}"""')
+            st.markdown(f'"""**{sender_display_name}:**\n{content}"""')
