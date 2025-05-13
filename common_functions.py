@@ -68,22 +68,22 @@ def custom_speaker_selection(
     module_logger.debug(f"Available agent code names: {[a.name for a in groupchat.agents]}")
     module_logger.debug(f"Agent display names map: {agent_display_names}")
 
-    product_lead_agent = next((agent for agent in groupchat.agents if isinstance(agent, UserProxyAgent)), None)
-    if not product_lead_agent:
-        module_logger.error("No UserProxyAgent (ProductLead) found!")
+    user_agent = next((agent for agent in groupchat.agents if isinstance(agent, UserProxyAgent)), None)
+    if not user_agent:
+        module_logger.error("No UserProxyAgent (User) found!")
         return groupchat.agents[0] if groupchat.agents else ValueError("No agents in groupchat!")
 
     if not groupchat.messages:
-        module_logger.info("No messages yet, ProductLead by default.")
-        return product_lead_agent
+        module_logger.info("No messages yet, User by default.")
+        return user_agent
 
     last_message_obj = groupchat.messages[-1]
     message_content = str(last_message_obj.get('content', '')).strip()
     module_logger.debug(f"Checking message content for selection: '{message_content[:150]}{'...' if len(message_content) > 150 else ''}'")
 
     if message_content.rstrip().endswith("TERMINATE"):
-        module_logger.info("TERMINATE detected. Selecting ProductLead.")
-        return product_lead_agent
+        module_logger.info("TERMINATE detected. Selecting User.")
+        return user_agent
 
     lower_message_content = message_content.lower()
     last_mention_index = -1
@@ -125,14 +125,14 @@ def custom_speaker_selection(
     if agent_to_select:
         selected_agent_name = agent_to_select.name
         if agent_to_select == last_speaker:
-            module_logger.info(f"Speaker '{last_speaker.name}' mentioned themselves ('{agent_display_names.get(last_speaker.name)}'). Defaulting to ProductLead.")
-            next_speaker = product_lead_agent
+            module_logger.info(f"Speaker '{last_speaker.name}' mentioned themselves ('{agent_display_names.get(last_speaker.name)}'). Defaulting to User.")
+            next_speaker = user_agent
         else:
             module_logger.info(f"Next speaker by mention: '{agent_to_select.name}' (DisplayName: '{agent_display_names.get(agent_to_select.name)}').")
             next_speaker = agent_to_select
     else:
-        module_logger.info(f"No specific agent display name mentioned. Defaulting to ProductLead.")
-        next_speaker = product_lead_agent
+        module_logger.info(f"No specific agent display name mentioned. Defaulting to User.")
+        next_speaker = user_agent
 
     module_logger.debug(f"--- Exiting custom_speaker_selection (Selected: {next_speaker.name if next_speaker else 'None'}) ---")
     return next_speaker
@@ -197,7 +197,7 @@ def initiate_chat_task(
 def run_agent_step(manager: GroupChatManager, speaker: Agent) -> Tuple[List[Dict], Optional[Agent]]:
     newly_added_messages = []
     next_speaker = None
-    product_lead_agent = next((agent for agent in manager.groupchat.agents if isinstance(agent, UserProxyAgent)), None)
+    user_agent = next((agent for agent in manager.groupchat.agents if isinstance(agent, UserProxyAgent)), None)
     try:
         module_logger.info(f"--- Running step for agent: {speaker.name} ---")
         messages_context = manager.groupchat.messages
@@ -226,8 +226,8 @@ def run_agent_step(manager: GroupChatManager, speaker: Agent) -> Tuple[List[Dict
         module_logger.info(f"Step for {speaker.name} done. Next: {next_speaker.name if next_speaker else 'None'}")
     except Exception as e:
         module_logger.error(f"Error during agent step for {speaker.name}: {e}", exc_info=True)
-        if product_lead_agent: next_speaker = product_lead_agent
-        else: module_logger.error("ProductLead agent not found for error fallback.")
+        if user_agent: next_speaker = user_agent
+        else: module_logger.error("User agent not found for error fallback.")
     return newly_added_messages, next_speaker
 
 def send_user_message(manager: GroupChatManager, user_agent: UserProxyAgent, user_message: str) -> Tuple[List[Dict], Optional[Agent]]:
