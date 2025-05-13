@@ -70,7 +70,7 @@ def initialize_editable_prompts():
                 display_name, system_content = read_system_message(config["file"])
                 st.session_state[config["key"]] = system_content
                 # Store display name, defaulting to agent_code_name if not parsed from file
-                actual_display_name = display_name or agent_code_name 
+                actual_display_name = display_name or agent_code_name
                 st.session_state[AGENT_DISPLAY_NAMES_KEY][agent_code_name] = actual_display_name
                 logger.info(f"Loaded prompt for '{agent_code_name}' (Display: '{actual_display_name}') into state ('{config['key']}').")
             except Exception as e:
@@ -160,8 +160,29 @@ def setup_chat(
 
     return manager, user_agent
 
+def display_messages(messages):
+    num_messages = len(messages)
+    start_index = max(0, num_messages - MAX_MESSAGES_DISPLAY)
+    if num_messages > MAX_MESSAGES_DISPLAY: st.warning(f"Displaying last {MAX_MESSAGES_DISPLAY} of {num_messages} messages.")
+
+    for msg in messages[start_index:]:
+        internal_sender_name = msg.get("name", "System") # This is the agent code name
+        sender_display_name = st.session_state.get(AGENT_DISPLAY_NAMES_KEY, {}).get(internal_sender_name, internal_sender_name)
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
+            content = "\n".join(parts)
+        elif not isinstance(content, str): content = str(content)
+
+        avatar_map = {USER_NAME: "🧑", PERSONA1_NAME: "🤖", PERSONA2_NAME: "🧐"}
+        avatar = avatar_map.get(internal_sender_name, "⚙️")
+
+        with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
+            # Always show display name
+            st.markdown(f'"""**{sender_display_name}:**\n{content}"""')
+
 # --- Streamlit App UI ---
-st.title("🤖 AI Persona Chat Session")
+st.title("🤖 Chat with agentT and agentH")
 
 # --- Initialization ---
 default_values = {
@@ -205,8 +226,8 @@ with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
     update_token_warning()
 
 if st.sidebar.button("🚀 Start Chat", key="start_chat",
-                    disabled=st.session_state.chat_initialized or 
-                             not st.session_state.get(TASK_PROMPT_KEY, "").strip() or 
+                    disabled=st.session_state.chat_initialized or
+                             not st.session_state.get(TASK_PROMPT_KEY, "").strip() or
                              not st.session_state.config):
     task_prompt = st.session_state.get(TASK_PROMPT_KEY, "").strip()
     if not st.session_state.chat_initialized and task_prompt and st.session_state.config:
@@ -225,15 +246,15 @@ if st.sidebar.button("🚀 Start Chat", key="start_chat",
                     agent_display_names=current_display_names # Pass display names here
                 )
                 initial_messages, next_agent = initiate_chat_task(
-                    st.session_state.user_agent, 
-                    st.session_state.manager, 
+                    st.session_state.user_agent,
+                    st.session_state.manager,
                     task_prompt,
                     system_content_for_group=st.session_state.get(CONTENT_TEXT_KEY, "") # New argument
                 )
                 st.session_state.messages = initial_messages
                 st.session_state.next_agent = next_agent
                 st.session_state.chat_initialized = True
-        except Exception as e: 
+        except Exception as e:
             st.session_state.error_message = f"Setup/Initiation failed: {e}"; st.session_state.chat_initialized = False
             logger.error(f"Chat start error: {traceback.format_exc()}")
         finally: st.session_state.processing = False
@@ -275,8 +296,8 @@ with chat_container:
                         st.session_state.next_agent = st.session_state.manager.groupchat.select_speaker(
                             st.session_state.next_agent, # last speaker was current agent
                             st.session_state.manager.groupchat
-                        ) 
-                    except Exception as e: 
+                        )
+                    except Exception as e:
                         st.session_state.error_message = f"Error during {display_next_agent_name}'s turn: {e}"; st.session_state.next_agent = None
                         logger.error(f"{display_next_agent_name} turn error: {traceback.format_exc()}")
                 st.session_state.processing = False; st.rerun()
@@ -290,27 +311,6 @@ if st.session_state.chat_initialized or st.session_state.error_message:
          for key in keys_to_clear:
              if key in st.session_state: del st.session_state[key]
          # Re-initialize after clearing
-         initialize_editable_prompts() 
+         initialize_editable_prompts()
          logger.info("Chat state cleared and prompts re-initialized.")
          update_token_warning(); st.rerun()
-
-def display_messages(messages):
-    num_messages = len(messages)
-    start_index = max(0, num_messages - MAX_MESSAGES_DISPLAY)
-    if num_messages > MAX_MESSAGES_DISPLAY: st.warning(f"Displaying last {MAX_MESSAGES_DISPLAY} of {num_messages} messages.")
-
-    for msg in messages[start_index:]:
-        internal_sender_name = msg.get("name", "System") # This is the agent code name
-        sender_display_name = st.session_state.get(AGENT_DISPLAY_NAMES_KEY, {}).get(internal_sender_name, internal_sender_name)
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
-            content = "\n".join(parts)
-        elif not isinstance(content, str): content = str(content)
-
-        avatar_map = {USER_NAME: "🧑", PERSONA1_NAME: "🤖", PERSONA2_NAME: "🧐"}
-        avatar = avatar_map.get(internal_sender_name, "⚙️")
-
-        with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
-            # Always show display name
-            st.markdown(f'"""**{sender_display_name}:**\n{content}"""')
