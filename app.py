@@ -27,14 +27,14 @@ logger = logging.getLogger(__name__)
 
 # --- Constants ---
 
-PRODUCT_LEAD_NAME = "ProductLead"
-PERSONA1_NAME = "Persona1"  # Updated name
-PERSONA2_NAME = "Persona2"  # Updated name
+PRODUCT_LEAD_NAME = "User"  # Updated name
+PERSONA1_NAME = "Persona1"
+PERSONA2_NAME = "Persona2"
 
-PRODUCT_LEAD_SYS_MSG_FILE = "ProductLead.md"
+PRODUCT_LEAD_SYS_MSG_FILE = "User.md"  # Updated file name
 # These files provide the *default* system messages for the personas
-PERSONA1_DEFAULT_SYS_MSG_FILE = "PolicyGuard.md"
-PERSONA2_DEFAULT_SYS_MSG_FILE = "Challenger.md"
+PERSONA1_DEFAULT_SYS_MSG_FILE = "Persona1.md"  # Updated file name
+PERSONA2_DEFAULT_SYS_MSG_FILE = "Persona2.md"  # Updated file name
 
 # Marker for policy injection (if Persona1 takes on this role)
 POLICY_INJECTION_MARKER = "## Policies"
@@ -46,7 +46,7 @@ TASK_PROMPT_KEY = "initial_prompt_input" # Key for the task description area
 # Keys for editable system messages in session_state
 PERSONA1_EDIT_KEY = "persona1_editable_prompt"
 PERSONA2_EDIT_KEY = "persona2_editable_prompt"
-PRODUCT_LEAD_EDIT_KEY = "product_lead_editable_prompt"
+PRODUCT_LEAD_EDIT_KEY = "product_lead_editable_prompt" # Should be user_editable_prompt now but key can remain for simplicity or be changed too
 
 AGENT_CONFIG = {
     PERSONA1_NAME: {"file": PERSONA1_DEFAULT_SYS_MSG_FILE, "key": PERSONA1_EDIT_KEY},
@@ -203,18 +203,15 @@ def setup_chat(
 
     # --- Group Chat Setup ---
 
-    # Order might matter for turn-taking, ensure ProductLead is correctly placed
-    # For a group chat where user (ProductLead) talks to Persona1 and Persona2,
-    # they should all be in the list.
     chat_participants = [product_lead_agent, persona1_agent, persona2_agent]
     try:
-        groupchat = create_groupchat(chat_participants, max_round=50) # Increased max_round
+        groupchat = create_groupchat(chat_participants, max_round=50)
         logger.info("GroupChat created successfully.")
     except Exception as e:
         logger.error(f"Unexpected error during GroupChat creation: {e}", exc_info=True)
         raise
 
-    manager_llm_config = llm_config # Reusing the same config for the manager
+    manager_llm_config = llm_config
     try:
         manager = create_groupchat_manager(groupchat, manager_llm_config)
         logger.info("GroupChatManager created successfully.")
@@ -223,7 +220,7 @@ def setup_chat(
         raise
 
     logger.info("Chat setup completed.")
-    return manager, product_lead_agent # Return the user_proxy_agent
+    return manager, product_lead_agent
 
 # --- Streamlit App UI ---
 
@@ -237,11 +234,11 @@ default_values = {
     "error_message": None,
     "config": None,
     "manager": None,
-    "product_lead_agent": None, # This is the UserProxyAgent
+    "product_lead_agent": None,
     "messages": [],
     "next_agent": None,
     TASK_PROMPT_KEY: "",
-    POLICY_TEXT_KEY: "", # For optional policy injection into Persona1
+    POLICY_TEXT_KEY: "",
 }
 for key, value in default_values.items():
     if key not in st.session_state:
@@ -253,12 +250,10 @@ initialize_editable_prompts()
 
 if not st.session_state.config:
     try:
-        # Simplified: Using default config. Replace with actual load_config if needed.
         st.session_state.config = {
             "llm_provider": VERTEX_AI,
-            "model_name": "gemini-1.5-pro-002" # Default model
+            "model_name": "gemini-1.5-pro-002"
         }
-        # st.sidebar.success("Configuration loaded (using defaults).") # Less verbose
     except Exception as e:
         st.sidebar.error(f"Failed to load configuration: {e}")
         st.stop()
@@ -268,36 +263,22 @@ if not st.session_state.config:
 with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
     st.caption("Define the AI personas and the initial task.")
 
-    # Editable system prompts for AI Personas
     for agent_name, config_info in AGENT_CONFIG.items():
-        # Exclude ProductLead from this editable section if its prompt is fixed or managed differently
-        if agent_name == PRODUCT_LEAD_NAME: # ProductLead prompt might not be user-editable in the same way
-            # If ProductLead prompt is also editable, include it. Otherwise, skip.
-            # For now, let's assume ProductLead's system message is less frequently changed or fixed.
-            # If you want ProductLead to be editable here, remove this conditional block.
-            # st.text_area(
-            #     f"Edit {agent_name} System Prompt",
-            #     key=config_info["key"],
-            #     height=100,
-            #     disabled=st.session_state.chat_initialized,
-            #     on_change=update_token_warning
-            # )
-            pass # Skip ProductLead here, assuming its role is more fixed as the user proxy.
+        if agent_name == PRODUCT_LEAD_NAME:
+            pass
         else:
             st.text_area(
-                f"System Prompt for {agent_name} (User Defined Name):",
-                key=config_info["key"], # e.g., persona1_editable_prompt
+                f"System Prompt for {agent_name}:",
+                key=config_info["key"],
                 height=150,
                 disabled=st.session_state.chat_initialized,
-                help=f"Define the background, personality, and instructions for {agent_name}. The actual name used in chat will be {agent_name}.",
+                help=f"Define the background, personality, and instructions for {agent_name}.",
                 on_change=update_token_warning
             )
 
-    # Token information and warning placeholders
     token_info_placeholder = st.sidebar.empty()
     token_warning_placeholder = st.sidebar.empty()
 
-    # Optional Policy Text (for Persona1)
     policy_text_input = st.sidebar.text_area(
         "Enter Policy Text (Optional, for Persona1):",
         height=100,
@@ -307,7 +288,6 @@ with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
         on_change=update_token_warning
     )
 
-    # Task Description
     initial_prompt_input = st.sidebar.text_area(
         "Enter the Initial Task or Question:",
         height=150,
@@ -316,13 +296,13 @@ with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
         help="Describe the initial task, question, or topic for the discussion.",
         on_change=update_token_warning
     )
-    update_token_warning() # Initial call
+    update_token_warning()
 
 # --- Start Chat Area ---
 
 if st.sidebar.button("🚀 Start Chat", key="start_chat",
                     disabled=st.session_state.chat_initialized
-                             or not st.session_state.get(TASK_PROMPT_KEY, "").strip() # Ensure task is not empty
+                             or not st.session_state.get(TASK_PROMPT_KEY, "").strip()
                              or not st.session_state.config):
 
     task_prompt = st.session_state.get(TASK_PROMPT_KEY, "").strip()
@@ -345,14 +325,13 @@ if st.sidebar.button("🚀 Start Chat", key="start_chat",
                 )
                 logger.info("Setup complete. Initiating chat task...")
 
-                # ProductLead (UserProxyAgent) initiates the chat with the task prompt
                 initial_messages, next_agent = initiate_chat_task(
-                    st.session_state.product_lead_agent, # User proxy agent
-                    st.session_state.manager,          # Group chat manager
-                    task_prompt                        # The initial message / task
+                    st.session_state.product_lead_agent,
+                    st.session_state.manager,
+                    task_prompt
                 )
                 st.session_state.messages = initial_messages
-                st.session_state.next_agent = next_agent # Should be one of the AI personas or manager choice
+                st.session_state.next_agent = next_agent
                 st.session_state.chat_initialized = True
                 logger.info(f"Chat initiated by {PRODUCT_LEAD_NAME}. Task: '{task_prompt}'. Next agent: {st.session_state.next_agent.name if st.session_state.next_agent else 'None'}")
 
@@ -377,14 +356,13 @@ chat_container = st.container()
 
 with chat_container:
     if st.session_state.chat_initialized and st.session_state.manager:
-        display_messages(st.session_state.messages) # Existing function to display messages
+        display_messages(st.session_state.messages)
 
         if st.session_state.next_agent and not st.session_state.processing:
             next_agent_name = st.session_state.next_agent.name
 
-            # Check if it's the user's (ProductLead's) turn
             if next_agent_name == PRODUCT_LEAD_NAME:
-                st.markdown(f"**Your turn (as User):**") # Simplified user role display
+                st.markdown(f"**Your turn (as User):**")
                 form_key = f'user_input_form_{len(st.session_state.messages)}'
                 input_key = f"user_input_{len(st.session_state.messages)}"
 
@@ -409,10 +387,9 @@ with chat_container:
                             with st.spinner(f"Sending message..."):
                                 try:
                                     logger.info(f"Sending user message: {user_input}")
-                                    # UserProxyAgent (product_lead_agent) sends the message to the manager
                                     new_messages, next_agent = send_user_message(
                                         st.session_state.manager,
-                                        st.session_state.product_lead_agent, # The agent sending the message
+                                        st.session_state.product_lead_agent,
                                         user_input
                                     )
                                     st.session_state.messages.extend(new_messages)
@@ -434,18 +411,18 @@ with chat_container:
                 with st.spinner(f"Thinking... {next_agent_name} is responding..."):
                     try:
                         logger.info(f"Running step for AI agent: {next_agent_name}")
-                        new_messages, next_agent = run_agent_step(
+                        new_messages, _ = run_agent_step(
                             st.session_state.manager,
-                            st.session_state.next_agent # The AI agent whose turn it is
+                            st.session_state.next_agent
                         )
                         st.session_state.messages.extend(new_messages)
-                        st.session_state.next_agent = next_agent
-                        logger.info(f"AI Agent {next_agent_name} finished. Next agent: {next_agent.name if next_agent else 'None'}")
+                        st.session_state.next_agent = st.session_state.product_lead_agent
+                        logger.info(f"AI Agent {next_agent_name} finished. Forcing next agent to: {st.session_state.product_lead_agent.name}")
                         should_rerun = True
                     except Exception as e:
                         logger.error(f"Error during {next_agent_name}'s turn: {traceback.format_exc()}")
                         st.session_state.error_message = f"Error during {next_agent_name}'s turn: {e}"
-                        st.session_state.next_agent = None # Stop chat on agent error
+                        st.session_state.next_agent = None
                         should_rerun = True
                 st.session_state.processing = False
                 if should_rerun:
@@ -466,8 +443,6 @@ if st.session_state.chat_initialized or st.session_state.error_message or not st
          st.session_state.product_lead_agent = None
          st.session_state[TASK_PROMPT_KEY] = ""
          st.session_state[POLICY_TEXT_KEY] = ""
-         # Optionally reset editable prompts to default (currently keeps user edits)
-         # initialize_editable_prompts() # Uncomment to reset persona prompts to default file content on clear
          logger.info("Chat state cleared. Ready for new configuration/start.")
          update_token_warning()
          st.rerun()
@@ -481,36 +456,30 @@ def display_messages(messages):
 
     for i, msg in enumerate(messages[start_index:], start=start_index):
         sender_name = msg.get("name", "System")
-        # If name is not present but role is, use role (e.g. for system messages from manager)
         if not sender_name and "role" in msg:
              sender_name = msg["role"].capitalize()
-        # If sender is "User" use ProductLead's name, otherwise use the agent's name or "System"
-        # Autogen typically sets 'name' for agents, and 'role': 'user' for UserProxyAgent messages.
-        # The 'name' field in the message dictionary is the most reliable source for the sender.
 
         content = msg.get("content", "")
-        if isinstance(content, list): # Handle cases like tool calls or multi-part messages
+        if isinstance(content, list):
             parts = []
             for item in content:
                 if isinstance(item, dict) and "text" in item: parts.append(item["text"])
                 elif isinstance(item, str): parts.append(item)
-                else: parts.append(str(item)) # Fallback for other types
+                else: parts.append(str(item))
             content = "
 ".join(parts)
         elif not isinstance(content, str):
-             content = str(content) # Ensure content is string
+             content = str(content)
 
-        # Determine avatar and alignment based on sender
-        # ProductLead (user's actual agent) will have its messages shown as "User"
-        if sender_name == PRODUCT_LEAD_NAME: #This is our UserProxyAgent
-            with st.chat_message("user", avatar="🧑"): # Display as 'user' for UI
+        if sender_name == PRODUCT_LEAD_NAME:
+            with st.chat_message("user", avatar="🧑"):
                  st.markdown(f"""**You ({PRODUCT_LEAD_NAME}):**
 {content}""")
-        elif sender_name in [PERSONA1_NAME, PERSONA2_NAME]: # AI personas
+        elif sender_name in [PERSONA1_NAME, PERSONA2_NAME]:
             with st.chat_message("assistant", avatar="🤖"):
                  st.markdown(f"""**{sender_name}:**
 {content}""")
-        else: # System messages or other agents (e.g. GroupChatManager talking)
-            with st.chat_message("system", avatar="⚙️"): # Or a generic avatar
+        else:
+            with st.chat_message("system", avatar="⚙️"):
                  st.markdown(f"""_{sender_name}: {content}_""")
 
