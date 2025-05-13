@@ -174,7 +174,7 @@ def display_messages(messages):
             content = "\n".join(parts)
         elif not isinstance(content, str): content = str(content)
 
-        avatar_map = {USER_NAME: "🧑", PERSONA1_NAME: "🤖", PERSONA2_NAME: "🧐"}
+        avatar_map = {USER_NAME: "🧑", PERSONA1_NAME: "🧑‍🏫", PERSONA2_NAME: "🧐"}
         avatar = avatar_map.get(internal_sender_name, "⚙️")
 
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
