@@ -79,38 +79,55 @@ def initialize_editable_prompts():
                 logger.error(f"Failed to load prompt for {agent_code_name} from {config['file']}: {e}")
 
 def update_token_warning():
-    # ... (token warning logic remains the same)
-    content_text = st.session_state.get(CONTENT_TEXT_KEY, "") # Renamed from policy_text and POLICY_TEXT_KEY
+    # Calculate estimated tokens for the *next* input (system prompts + initial task/content if chat not started)
+    content_text = st.session_state.get(CONTENT_TEXT_KEY, "")
     task_text = st.session_state.get(TASK_PROMPT_KEY, "")
     persona1_prompt = st.session_state.get(PERSONA1_EDIT_KEY, "")
     persona2_prompt = st.session_state.get(PERSONA2_EDIT_KEY, "")
     user_prompt = st.session_state.get(USER_EDIT_KEY, "")
 
-    content_tokens = estimate_tokens(content_text) # Renamed from policy_tokens
+    content_tokens = estimate_tokens(content_text)
     task_tokens = estimate_tokens(task_text)
     persona1_tokens = estimate_tokens(persona1_prompt)
     persona2_tokens = estimate_tokens(persona2_prompt)
     user_tokens = estimate_tokens(user_prompt)
 
     total_system_prompt_tokens = persona1_tokens + persona2_tokens + user_tokens
-    total_input_tokens = content_tokens + task_tokens # Renamed from policy_tokens
-    total_estimated_tokens = total_input_tokens + total_system_prompt_tokens
+    # This estimates the tokens if we were to start a *new* chat with current sidebar inputs
+    current_sidebar_input_tokens = content_tokens + task_tokens
+    total_estimated_for_new_chat_tokens = current_sidebar_input_tokens + total_system_prompt_tokens
+
+    # Display cumulative tokens for the *current/ongoing* chat
+    cumulative_input = st.session_state.get("total_input_tokens", 0)
+    cumulative_output = st.session_state.get("total_output_tokens", 0)
+    total_cumulative_tokens = cumulative_input + cumulative_output
+
+    token_info_str = f"Cumulative Tokens (In/Out): ~{cumulative_input:,} / ~{cumulative_output:,} (Total: ~{total_cumulative_tokens:,})"
+    if not st.session_state.get("chat_initialized", False):
+        token_info_str += f"
+Estimated for New Chat (System + Input): ~{total_estimated_for_new_chat_tokens:,} / {CONTEXT_LIMIT:,}"
+    else:
+        token_info_str += f"
+Context Limit: {CONTEXT_LIMIT:,}"
+
 
     if hasattr(st.session_state, 'token_info_placeholder') and st.session_state.token_info_placeholder:
-        st.session_state.token_info_placeholder.caption(f"Estimated Input Tokens: ~{total_estimated_tokens:,} / {CONTEXT_LIMIT:,}")
+        st.session_state.token_info_placeholder.caption(token_info_str)
 
+    # Warning for *new chat* inputs approaching context limit
     if hasattr(st.session_state, 'token_warning_placeholder') and st.session_state.token_warning_placeholder:
-        if total_estimated_tokens > CONTEXT_LIMIT * WARNING_THRESHOLD:
-            st.session_state.token_warning_placeholder.warning(f"Inputs approaching context limit ({WARNING_THRESHOLD*100:.0f}%). Total: ~{total_estimated_tokens:,}")
+        if not st.session_state.get("chat_initialized", False) and total_estimated_for_new_chat_tokens > CONTEXT_LIMIT * WARNING_THRESHOLD:
+            st.session_state.token_warning_placeholder.warning(f"Inputs for a new chat are approaching context limit ({WARNING_THRESHOLD*100:.0f}%). Est. new chat: ~{total_estimated_for_new_chat_tokens:,}")
         else:
             st.session_state.token_warning_placeholder.empty()
+
 
 def setup_chat(
     llm_provider: str,
     model_name: str,
-    content_text: Optional[str], # Renamed from policy_text
-    agent_prompts: Dict[str, str], # agent_code_name: system_message_content
-    agent_display_names: Dict[str, str] # agent_code_name: display_name
+    content_text: Optional[str],
+    agent_prompts: Dict[str, str],
+    agent_display_names: Dict[str, str]
     ) -> Tuple[GroupChatManager, UserProxyAgent]:
 
     logger.info(f"Setting up chat with provider: {llm_provider}, model: {model_name}")
@@ -152,7 +169,6 @@ def setup_chat(
     chat_participants = list(agents_dict.values())
 
     try:
-        # Pass agent_display_names to create_groupchat
         groupchat = create_groupchat(chat_participants, agent_display_names, max_round=50)
         manager = create_groupchat_manager(groupchat, llm_config)
         logger.info("GroupChat and Manager created.")
@@ -165,20 +181,19 @@ def display_messages(messages):
     start_index = max(0, num_messages - MAX_MESSAGES_DISPLAY)
     if num_messages > MAX_MESSAGES_DISPLAY: st.warning(f"Displaying last {MAX_MESSAGES_DISPLAY} of {num_messages} messages.")
 
-    # Get the initial task prompt and content text from session state
     initial_task_prompt = st.session_state.get(TASK_PROMPT_KEY, "").strip()
     content_text = st.session_state.get(CONTENT_TEXT_KEY, "").strip()
 
     for msg in messages[start_index:]:
-        internal_sender_name = msg.get("name", "System") # This is the agent code name
+        internal_sender_name = msg.get("name", "System")
         sender_display_name = st.session_state.get(AGENT_DISPLAY_NAMES_KEY, {}).get(internal_sender_name, internal_sender_name)
         content = msg.get("content", "")
         if isinstance(content, list):
             parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
-            content = "\n".join(parts)
+            content = "
+".join(parts)
         elif not isinstance(content, str): content = str(content)
 
-        # Skip displaying the message if it's the initial task prompt or the content text
         if content.strip() == initial_task_prompt or content.strip() == content_text:
             continue
 
@@ -186,8 +201,8 @@ def display_messages(messages):
         avatar = avatar_map.get(internal_sender_name, "⚙️")
 
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
-            # Display name and content without extra quotes or redundant names
-            st.markdown(f"**{sender_display_name}:**\n{content}")
+            st.markdown(f"**{sender_display_name}:**
+{content}")
 
 # --- Streamlit App UI ---
 st.title("Dyskusja z dwoma ejajami")
@@ -197,12 +212,14 @@ default_values = {
     "chat_initialized": False, "processing": False, "error_message": None,
     "config": None, "manager": None, "user_agent": None,
     "messages": [], "next_agent": None,
-    TASK_PROMPT_KEY: "", CONTENT_TEXT_KEY: "", # Renamed from POLICY_TEXT_KEY
+    TASK_PROMPT_KEY: "", CONTENT_TEXT_KEY: "",
+    "total_input_tokens": 0,
+    "total_output_tokens": 0,
 }
 for key, value in default_values.items():
     if key not in st.session_state: st.session_state[key] = value
 
-initialize_editable_prompts() # Populates AGENT_DISPLAY_NAMES_KEY and editable prompts
+initialize_editable_prompts()
 
 if not st.session_state.config:
     try:
@@ -212,7 +229,6 @@ if not st.session_state.config:
 with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
     st.caption("Define the AI personas and the initial task.")
     for agent_code_name, config_info in AGENT_CONFIG.items():
-        # Use display name from session state for the label
         display_name_for_label = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(agent_code_name, agent_code_name)
         st.text_area(
             f"System Prompt for {display_name_for_label} (Editable):",
@@ -225,8 +241,8 @@ with st.sidebar.expander("Configure AI Personas & Task", expanded=True):
     st.session_state.token_info_placeholder = st.sidebar.empty()
     st.session_state.token_warning_placeholder = st.sidebar.empty()
 
-    content_text_input = st.sidebar.text_area( # Renamed variable for clarity, though not strictly necessary
-        "Enter Content Text (Optional):", height=100, key=CONTENT_TEXT_KEY, # Changed label and key
+    content_text_input = st.sidebar.text_area(
+        "Enter Content Text (Optional):", height=100, key=CONTENT_TEXT_KEY,
         disabled=st.session_state.chat_initialized, on_change=update_token_warning)
     initial_prompt_input = st.sidebar.text_area(
         "Enter the Initial Task or Question:", height=150, key=TASK_PROMPT_KEY,
@@ -238,34 +254,56 @@ if st.sidebar.button("🚀 Start Chat", key="start_chat",
                              not st.session_state.get(TASK_PROMPT_KEY, "").strip() or
                              not st.session_state.config):
     task_prompt = st.session_state.get(TASK_PROMPT_KEY, "").strip()
+    content_text = st.session_state.get(CONTENT_TEXT_KEY, "").strip() # Get content text
+
     if not st.session_state.chat_initialized and task_prompt and st.session_state.config:
         st.session_state.processing = True; st.session_state.error_message = None
+        # Reset token counts for a new chat
+        st.session_state.total_input_tokens = 0
+        st.session_state.total_output_tokens = 0
         try:
             with st.spinner("Brewing conversations..."):
                 current_agent_prompts = {name: st.session_state.get(cfg["key"], "") for name, cfg in AGENT_CONFIG.items()}
-                # Get the display names from session state
                 current_display_names = st.session_state[AGENT_DISPLAY_NAMES_KEY]
 
                 st.session_state.manager, st.session_state.user_agent = setup_chat(
                     llm_provider=st.session_state.config.get("llm_provider", VERTEX_AI),
                     model_name=st.session_state.config.get("model_name", "gemini-1.5-pro-002"),
-                    content_text=st.session_state.get(CONTENT_TEXT_KEY, ""), # Renamed from policy_text and POLICY_TEXT_KEY
+                    content_text=content_text,
                     agent_prompts=current_agent_prompts,
-                    agent_display_names=current_display_names # Pass display names here
+                    agent_display_names=current_display_names
                 )
                 initial_messages, next_agent = initiate_chat_task(
                     st.session_state.user_agent,
                     st.session_state.manager,
                     task_prompt,
-                    system_content_for_group=st.session_state.get(CONTENT_TEXT_KEY, "") # New argument
+                    system_content_for_group=content_text
                 )
                 st.session_state.messages = initial_messages
                 st.session_state.next_agent = next_agent
                 st.session_state.chat_initialized = True
+
+                # Add tokens for initial task prompt and content text
+                st.session_state.total_input_tokens += estimate_tokens(task_prompt)
+                if content_text: # Add content_text tokens only if it's not empty
+                    st.session_state.total_input_tokens += estimate_tokens(content_text)
+                
+                # Estimate and add tokens from initial messages (mostly AI responses to the initial task)
+                for msg in initial_messages:
+                    msg_content = msg.get("content", "")
+                    if isinstance(msg_content, list): # Handle potential list content from LLM
+                         msg_content = "
+".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
+
+                    if msg.get("name") != USER_NAME: # Count as output if not from user
+                        st.session_state.total_output_tokens += estimate_tokens(msg_content)
+                    # We already counted the initial task_prompt for the user.
+
         except Exception as e:
             st.session_state.error_message = f"Setup/Initiation failed: {e}"; st.session_state.chat_initialized = False
             logger.error(f"Chat start error: {traceback.format_exc()}")
         finally: st.session_state.processing = False
+        update_token_warning() # Update display after initial tokens are set
         st.rerun()
 
 if st.session_state.error_message: st.error(st.session_state.error_message)
@@ -273,31 +311,32 @@ if st.session_state.error_message: st.error(st.session_state.error_message)
 chat_container = st.container()
 with chat_container:
     if st.session_state.chat_initialized and st.session_state.manager:
-        display_messages(st.session_state.messages) # display_messages uses AGENT_DISPLAY_NAMES_KEY from session_state
+        display_messages(st.session_state.messages)
         next_agent_code_name = st.session_state.next_agent.name if st.session_state.next_agent else None
-        # Use display name for whose turn it is
         display_next_agent_name = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(next_agent_code_name, next_agent_code_name)
 
         if next_agent_code_name and not st.session_state.processing:
-            if next_agent_code_name == USER_NAME: # Still use code name for this check
+            if next_agent_code_name == USER_NAME:
                 with st.form(key=f'user_input_form_{len(st.session_state.messages)}'):
-                    # Use columns to place text area and button side-by-side
-                    col1, col2 = st.columns([0.8, 0.2]) # Adjust ratio as needed
+                    col1, col2 = st.columns([0.9, 0.1])
                     with col1:
                         user_input = st.text_area("Enter your message:", height=80, key=f"user_input_{len(st.session_state.messages)}", label_visibility="collapsed")
                     with col2:
-                        # Use an icon for the send button (adjust styling as needed)
                         send_button_pressed = st.form_submit_button("➤", help="Send message")
 
-                    if send_button_pressed: # Check if the send button (now an icon) was pressed
+                    if send_button_pressed:
                         if user_input.strip():
                             st.session_state.processing = True; st.session_state.error_message = None
+                            st.session_state.total_input_tokens += estimate_tokens(user_input) # Add user input tokens
                             with st.spinner("Sending message..."):
                                 try:
                                     new_msgs, next_ag = send_user_message(st.session_state.manager, st.session_state.user_agent, user_input)
                                     st.session_state.messages.extend(new_msgs); st.session_state.next_agent = next_ag
+                                    # Output tokens from this step will be from AI response in the *next* turn or if chat ends.
                                 except Exception as e: st.session_state.error_message = f"Send error: {e}"; logger.error(f"Send error: {traceback.format_exc()}")
-                            st.session_state.processing = False; st.rerun()
+                            st.session_state.processing = False
+                            update_token_warning() # Update display
+                            st.rerun()
                         else: st.warning("Please enter a message.")
             else: # AI Persona's Turn
                 st.markdown(f"**Running turn for:** {display_next_agent_name}...")
@@ -306,22 +345,34 @@ with chat_container:
                     try:
                         new_msgs, _ = run_agent_step(st.session_state.manager, st.session_state.next_agent)
                         st.session_state.messages.extend(new_msgs)
-                        # Force next speaker to be the user
+                        for msg in new_msgs: # Add AI output tokens
+                            msg_content = msg.get("content", "")
+                            if isinstance(msg_content, list): # Handle potential list content
+                                msg_content = "
+".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
+                            if msg.get("name") != USER_NAME : # Ensure it's not an echo of user input or other user message
+                                st.session_state.total_output_tokens += estimate_tokens(msg_content)
+
                         st.session_state.next_agent = st.session_state.user_agent
                     except Exception as e:
                         st.session_state.error_message = f"Error during {display_next_agent_name}'s turn: {e}"; st.session_state.next_agent = None
                         logger.error(f"{display_next_agent_name} turn error: {traceback.format_exc()}")
-                st.session_state.processing = False; st.rerun()
+                st.session_state.processing = False
+                update_token_warning() # Update display
+                st.rerun()
         elif not next_agent_code_name and st.session_state.chat_initialized and not st.session_state.processing:
              st.success("Chat finished or awaiting next step.")
 
 if st.session_state.chat_initialized or st.session_state.error_message:
      if st.sidebar.button("Clear Chat / Reset", key="clear_chat"):
-         # Clear all relevant session state keys
          keys_to_clear = list(default_values.keys()) + [PERSONA1_EDIT_KEY, PERSONA2_EDIT_KEY, USER_EDIT_KEY, AGENT_DISPLAY_NAMES_KEY]
+         # Ensure our new token counts are also cleared
+         keys_to_clear.extend(["total_input_tokens", "total_output_tokens"])
          for key in keys_to_clear:
              if key in st.session_state: del st.session_state[key]
-         # Re-initialize after clearing
          initialize_editable_prompts()
          logger.info("Chat state cleared and prompts re-initialized.")
+         # Reset token counts to 0 explicitly before updating warning, as they might not be in default_values if script was running
+         st.session_state.total_input_tokens = 0
+         st.session_state.total_output_tokens = 0
          update_token_warning(); st.rerun()
