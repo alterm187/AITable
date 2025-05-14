@@ -104,8 +104,7 @@ def update_token_warning():
 
     token_info_str = f"Cumulative Tokens (In/Out): ~{cumulative_input:,} / ~{cumulative_output:,} (Total: ~{total_cumulative_tokens:,})"
     if not st.session_state.get("chat_initialized", False):
-        token_info_str += f"
-Estimated for New Chat (System + Input): ~{total_estimated_for_new_chat_tokens:,} / {CONTEXT_LIMIT:,}"
+        token_info_str += f"\nEstimated for New Chat (System + Input): ~{total_estimated_for_new_chat_tokens:,} / {CONTEXT_LIMIT:,}"
     else:
         token_info_str += f"\nContext Limit: {CONTEXT_LIMIT:,}"
 
