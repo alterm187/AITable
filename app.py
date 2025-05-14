@@ -165,21 +165,31 @@ def display_messages(messages):
     start_index = max(0, num_messages - MAX_MESSAGES_DISPLAY)
     if num_messages > MAX_MESSAGES_DISPLAY: st.warning(f"Displaying last {MAX_MESSAGES_DISPLAY} of {num_messages} messages.")
 
+    # Get the initial task prompt and content text from session state
+    initial_task_prompt = st.session_state.get(TASK_PROMPT_KEY, "").strip()
+    content_text = st.session_state.get(CONTENT_TEXT_KEY, "").strip()
+
     for msg in messages[start_index:]:
         internal_sender_name = msg.get("name", "System") # This is the agent code name
         sender_display_name = st.session_state.get(AGENT_DISPLAY_NAMES_KEY, {}).get(internal_sender_name, internal_sender_name)
         content = msg.get("content", "")
         if isinstance(content, list):
             parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
-            content = "\n".join(parts)
+            content = "
+".join(parts)
         elif not isinstance(content, str): content = str(content)
+
+        # Skip displaying the message if it's the initial task prompt or the content text
+        if content.strip() == initial_task_prompt or content.strip() == content_text:
+            continue
 
         avatar_map = {USER_NAME: "🧑", PERSONA1_NAME: "🧑‍🏫", PERSONA2_NAME: "🧐"}
         avatar = avatar_map.get(internal_sender_name, "⚙️")
 
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
             # Display name and content without extra quotes or redundant names
-            st.markdown(f"**{sender_display_name}:**\n{content}")
+            st.markdown(f"**{sender_display_name}:**
+{content}")
 
 # --- Streamlit App UI ---
 st.title("🤖 Chat with agentT and agentH")
@@ -272,10 +282,16 @@ with chat_container:
 
         if next_agent_code_name and not st.session_state.processing:
             if next_agent_code_name == USER_NAME: # Still use code name for this check
-                st.markdown(f"**Your turn (as {display_next_agent_name}):**")
                 with st.form(key=f'user_input_form_{len(st.session_state.messages)}'):
-                    user_input = st.text_input("Enter your message:", key=f"user_input_{len(st.session_state.messages)}")
-                    if st.form_submit_button("✉️ Send Message"):
+                    # Use columns to place text area and button side-by-side
+                    col1, col2 = st.columns([0.8, 0.2]) # Adjust ratio as needed
+                    with col1:
+                        user_input = st.text_area("Enter your message:", height=80, key=f"user_input_{len(st.session_state.messages)}", label_visibility="collapsed")
+                    with col2:
+                        # Use an icon for the send button (adjust styling as needed)
+                        send_button_pressed = st.form_submit_button("➤", help="Send message")
+
+                    if send_button_pressed: # Check if the send button (now an icon) was pressed
                         if user_input.strip():
                             st.session_state.processing = True; st.session_state.error_message = None
                             with st.spinner("Sending message..."):
