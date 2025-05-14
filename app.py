@@ -198,7 +198,7 @@ def display_messages(messages):
             if internal_sender_name == AI_ASSISTANT_NAME:
                 st.markdown(content)
             else:
-                st.markdown(f"**{sender_display_name}:**\\n{content}")
+                st.markdown(f"**{sender_display_name}:**\n{content}")
 
 st.title("AI table discussion")
 
