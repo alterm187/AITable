@@ -175,8 +175,7 @@ def display_messages(messages):
         content = msg.get("content", "")
         if isinstance(content, list):
             parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
-            content = "
-".join(parts)
+            content = "\n".join(parts)
         elif not isinstance(content, str): content = str(content)
 
         # Skip displaying the message if it's the initial task prompt or the content text
@@ -188,11 +187,10 @@ def display_messages(messages):
 
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
             # Display name and content without extra quotes or redundant names
-            st.markdown(f"**{sender_display_name}:**
-{content}")
+            st.markdown(f"**{sender_display_name}:**\n{content}")
 
 # --- Streamlit App UI ---
-st.title("🤖 Chat with agentT and agentH")
+st.title("Dyskusja z dwoma ejajami")
 
 # --- Initialization ---
 default_values = {
