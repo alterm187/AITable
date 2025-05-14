@@ -49,8 +49,7 @@ def load_personas(persona_dir: str, persona_filenames: List[str]) -> str:
                     # For now, we'll take the whole content.
                     # lines = content.splitlines()
                     # if lines and re.match(r"^DisplayName:\s*(.+)$", lines[0].strip(), re.IGNORECASE):
-                    #    content = "
-".join(lines[1:]).strip()
+                    #    content = "\n".join(lines[1:]).strip()
                     combined_system_message.append(content)
                     module_logger.info(f"Successfully loaded persona: {safe_filename}")
                 else:
@@ -60,11 +59,7 @@ def load_personas(persona_dir: str, persona_filenames: List[str]) -> str:
         except Exception as e:
             module_logger.error(f"Error reading persona file {filename}: {e}")
     
-    return "
-
----
-
-".join(combined_system_message) # Separate personas clearly
+    return "\n---\n".join(combined_system_message) # Separate personas clearly
 
 # --- MODIFIED FUNCTION ---
 def create_agent(
@@ -102,8 +97,7 @@ def read_system_message(filename: str) -> Tuple[Optional[str], str]:
                 match = re.match(r"^DisplayName:\s*(.+)$", lines[0].strip(), re.IGNORECASE)
                 if match:
                     display_name = match.group(1).strip()
-                    system_message_content = "
-".join(lines[1:]).strip()
+                    system_message_content = "\n".join(lines[1:]).strip()
                     module_logger.info(f"Parsed DisplayName '{display_name}' from {filename}")
                 else:
                     module_logger.info(f"No DisplayName found in first line of {filename}.")
@@ -125,8 +119,6 @@ def read_system_message(filename: str) -> Tuple[Optional[str], str]:
         module_logger.error(f"Error reading system message file {filename}: {e}")
         return None, default_system_message
 
-# ... (rest of the common_functions.py file remains the same)
-# create_groupchat, custom_speaker_selection, etc.
 
 def custom_speaker_selection(
     last_speaker: Agent, 
@@ -267,16 +259,11 @@ def initiate_chat_task(
     # If it's meant to be part of the persona, it should be in the persona files.
     if system_content_for_group and system_content_for_group.strip():
         formatted_content = (
-            f"General Context for this Discussion (provided by the user, distinct from individual assistant personas):
-"
-            f"---
-"
-            f"{system_content_for_group.strip()}
-"
-            f"---
-"
-            f"User's Initial Task:
-"
+            f"General Context for this Discussion (provided by the user, distinct from individual assistant personas):\n"
+            f"---\n"
+            f"{system_content_for_group.strip()}\n"
+            f"---\n"
+            f"User's Initial Task:\n"
             f"{final_prompt}"
         )
         final_prompt = formatted_content # Prepend if provided

@@ -121,11 +121,9 @@ def update_token_warning():
 
     token_info_str = f"Cumulative Tokens (In/Out): ~{cumulative_input:,} / ~{cumulative_output:,} (Total: ~{total_cumulative_tokens:,})"
     if not st.session_state.get("chat_initialized", False):
-        token_info_str += f"
-Estimated for New Chat (System + Input): ~{total_estimated_for_new_chat_tokens:,} / {CONTEXT_LIMIT:,}"
+        token_info_str += f"\nEstimated for New Chat (System + Input): ~{total_estimated_for_new_chat_tokens:,} / {CONTEXT_LIMIT:,}"
     else:
-        token_info_str += f"
-Context Limit: {CONTEXT_LIMIT:,}"
+        token_info_str += f"\nContext Limit: {CONTEXT_LIMIT:,}"
 
     if hasattr(st.session_state, 'token_info_placeholder') and st.session_state.token_info_placeholder:
         st.session_state.token_info_placeholder.caption(token_info_str)
@@ -243,8 +241,7 @@ def display_messages(messages):
         content = msg.get("content", "")
         if isinstance(content, list): # Handle Gemini's list format for content
             parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
-            content = "
-".join(parts)
+            content = "\n".join(parts)
         elif not isinstance(content, str): content = str(content)
 
         # Avoid re-displaying the exact initial task prompt if it appears as a message content (e.g. echoed by user_proxy)
@@ -262,12 +259,11 @@ def display_messages(messages):
 
 
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
-            st.markdown(f"**{sender_display_name}:**
-{content}")
+            st.markdown(f"**{sender_display_name}:**\n{content}")
 
 
 # --- Streamlit App UI ---
-st.title("AI Persona Chat")
+st.title("AI table discussion")
 
 # --- Initialization ---
 default_values = {
@@ -399,8 +395,7 @@ if st.sidebar.button("🚀 Start Chat", key="start_chat",
                 for msg in initial_messages:
                     msg_content = msg.get("content", "")
                     if isinstance(msg_content, list):
-                         msg_content = "
-".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
+                         msg_content = "\n".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
                     if msg.get("name") != USER_NAME:
                         st.session_state.total_output_tokens += estimate_tokens(msg_content)
         except Exception as e:
@@ -454,8 +449,7 @@ with chat_container:
                         for msg in new_msgs:
                             msg_content = msg.get("content", "")
                             if isinstance(msg_content, list): 
-                                msg_content = "
-".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
+                                msg_content = "\n".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
                             if msg.get("name") != USER_NAME : 
                                 st.session_state.total_output_tokens += estimate_tokens(msg_content)
                         
