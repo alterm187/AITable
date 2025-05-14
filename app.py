@@ -195,7 +195,10 @@ def display_messages(messages):
         if internal_sender_name == USER_NAME and content.strip() == initial_task_prompt and messages.index(msg) > 0: continue
         avatar = {"User": "🧑", "AI_Assistant": "🤖"}.get(internal_sender_name, "⚙️")
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
-            st.markdown(f"**{sender_display_name}:**\n{content}")
+            if internal_sender_name == AI_ASSISTANT_NAME:
+                st.markdown(content)
+            else:
+                st.markdown(f"**{sender_display_name}:**\\n{content}")
 
 st.title("AI table discussion")
 
@@ -233,7 +236,7 @@ with st.sidebar.expander("Configure AI Agents & Task", expanded=True):
         on_change=update_token_warning, disabled=st.session_state.chat_initialized
     )
     user_ui_display_name = st.session_state[AGENT_DISPLAY_NAMES_KEY].get(USER_NAME, USER_NAME)
-    st.markdown(f"**{user_ui_display_name} Prompt:** Loaded from `{USER_SYS_MSG_FILE}`.")
+    #st.markdown(f"**{user_ui_display_name} Prompt:** Loaded from `{USER_SYS_MSG_FILE}`.")
     
     st.session_state.token_info_placeholder = st.sidebar.empty()
     st.session_state.token_warning_placeholder = st.sidebar.empty()
