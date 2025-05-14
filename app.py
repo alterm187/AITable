@@ -107,8 +107,7 @@ def update_token_warning():
         token_info_str += f"
 Estimated for New Chat (System + Input): ~{total_estimated_for_new_chat_tokens:,} / {CONTEXT_LIMIT:,}"
     else:
-        token_info_str += f"
-Context Limit: {CONTEXT_LIMIT:,}"
+        token_info_str += f"\nContext Limit: {CONTEXT_LIMIT:,}"
 
 
     if hasattr(st.session_state, 'token_info_placeholder') and st.session_state.token_info_placeholder:
@@ -190,8 +189,7 @@ def display_messages(messages):
         content = msg.get("content", "")
         if isinstance(content, list):
             parts = [item["text"] if isinstance(item, dict) and "text" in item else str(item) for item in content]
-            content = "
-".join(parts)
+            content = "\n".join(parts)
         elif not isinstance(content, str): content = str(content)
 
         if content.strip() == initial_task_prompt or content.strip() == content_text:
@@ -201,8 +199,7 @@ def display_messages(messages):
         avatar = avatar_map.get(internal_sender_name, "⚙️")
 
         with st.chat_message("user" if internal_sender_name == USER_NAME else "assistant", avatar=avatar):
-            st.markdown(f"**{sender_display_name}:**
-{content}")
+            st.markdown(f"**{sender_display_name}:**\n{content}")
 
 # --- Streamlit App UI ---
 st.title("Dyskusja z dwoma ejajami")
@@ -292,8 +289,7 @@ if st.sidebar.button("🚀 Start Chat", key="start_chat",
                 for msg in initial_messages:
                     msg_content = msg.get("content", "")
                     if isinstance(msg_content, list): # Handle potential list content from LLM
-                         msg_content = "
-".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
+                         msg_content = "\n".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
 
                     if msg.get("name") != USER_NAME: # Count as output if not from user
                         st.session_state.total_output_tokens += estimate_tokens(msg_content)
@@ -348,8 +344,7 @@ with chat_container:
                         for msg in new_msgs: # Add AI output tokens
                             msg_content = msg.get("content", "")
                             if isinstance(msg_content, list): # Handle potential list content
-                                msg_content = "
-".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
+                                msg_content = "\n".join(p.get("text", "") for p in msg_content if isinstance(p, dict) and "text" in p)
                             if msg.get("name") != USER_NAME : # Ensure it's not an echo of user input or other user message
                                 st.session_state.total_output_tokens += estimate_tokens(msg_content)
 
