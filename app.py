@@ -213,7 +213,7 @@ for key, value in default_values.items():
     if key not in st.session_state: st.session_state[key] = value
 
 initialize_prompts_and_personas()
-if not st.session_state.config: st.session_state.config = {"llm_provider": VERTEX_AI, "model_name": "gemini-1.5-pro-002"}
+if not st.session_state.config: st.session_state.config = {"llm_provider": VERTEX_AI, "model_name": "gemini-2.5-pro-05-06"}
 
 with st.sidebar.expander("Configure AI Agents & Task", expanded=True):
     st.caption("Select AI personas, User agent (User.md), and initial task.")
