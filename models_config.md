@@ -1,5 +1,5 @@
-# Model: gemini-1.5-pro-001
-Display Name: Gemini 1.5 Pro (Vertex AI)
+# Model: gemini-2.5-pro-preview-05-06
+Display Name: Gemini 2.5 Pro (Vertex AI)
 Input Token Price Per 1k: 0.0035
 Output Token Price Per 1k: 0.0105
 Context Window: 1048576
