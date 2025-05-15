@@ -31,9 +31,7 @@ def load_model_configurations(file_path: str = MODELS_CONFIG_PATH) -> Dict[str, 
             content = f.read()
         
         # Split models by "---"
-        model_sections = content.strip().split('
----
-')
+        model_sections = content.strip().split('\n---\n')
         
         for section in model_sections:
             if not section.strip():
