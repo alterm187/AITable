@@ -14,7 +14,7 @@ AZURE = "AZURE"
 ANTHROPIC = "ANTHROPIC"
 
 # Path to the model configurations file
-MODELS_CONFIG_PATH = "AITable/models_config.md"
+MODELS_CONFIG_PATH = "./models_config.md"
 
 # Cache for model configurations
 _model_configurations_cache: Optional[Dict[str, Dict[str, Any]]] = None
