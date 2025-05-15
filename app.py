@@ -145,10 +145,8 @@ def update_token_and_cost_info():
             effective_context_limit = model_details["context_window"]
 
 
-    info_str = f"Cumulative Tokens (In/Out): ~{cumulative_input_tokens:,} / ~{cumulative_output_tokens:,} (Total: ~{total_cumulative_tokens:,})
-"
-    info_str += f"Estimated Cost: ${total_cost:.4f}
-"
+    info_str = f"Cumulative Tokens (In/Out): ~{cumulative_input_tokens:,} / ~{cumulative_output_tokens:,} (Total: ~{total_cumulative_tokens:,})\n"
+    info_str += f"Estimated Cost: ${total_cost:.4f}\n"
 
     if not st.session_state.get("chat_initialized", False):
         info_str += f"Est. for New Chat (System + Input): ~{total_estimated_for_new_chat_tokens:,} / {effective_context_limit:,}"
@@ -216,8 +214,7 @@ def display_messages(messages):
         internal_sender_name = msg.get("name", "System")
         sender_display_name = st.session_state.get(AGENT_DISPLAY_NAMES_KEY, {}).get(internal_sender_name, internal_sender_name)
         content = msg.get("content", "")
-        if isinstance(content, list): content = "
-".join(item["text"] for item in content if isinstance(item, dict) and "text" in item)
+        if isinstance(content, list): content = "\n".join(item["text"] for item in content if isinstance(item, dict) and "text" in item)
         elif not isinstance(content, str): content = str(content)
         if internal_sender_name == USER_NAME and content.strip() == initial_task_prompt and messages.index(msg) > 0: continue
         avatar = {"User": "🧑", "AI_Assistant": "🤖"}.get(internal_sender_name, "⚙️")
@@ -227,8 +224,7 @@ def display_messages(messages):
             elif internal_sender_name == USER_NAME:
                 st.markdown(f'<div style="text-align: right; padding-left: 20px;"><b>{sender_display_name}:</b><br>{content}</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f"**{sender_display_name}:**
-{content}")
+                st.markdown(f"**{sender_display_name}:**\n{content}")
 
 st.title("AI table discussion")
 
